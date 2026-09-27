@@ -8,7 +8,7 @@ export const SPEECH_LOCALES = {
   ru: 'ru-RU',
 };
 
-export function speakInBrowser(text, languageCode = 'en') {
+function speakInBrowser(text, languageCode = 'en') {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve();
     const utterance = new SpeechSynthesisUtterance(text);

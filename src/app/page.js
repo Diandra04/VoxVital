@@ -99,7 +99,7 @@ export default function LandingPage() {
               </div>
               <h3 className="text-xl font-black text-black">1. Touchless camera vitals</h3>
               <p className="text-zinc-700 text-sm leading-relaxed font-medium">
-                Measures pulse rate and breathing rate from a 30-second camera scan by detecting tiny colour changes in the face, using Presage. No physical touching required.
+                A 30-second camera scan reads pulse and breathing rate with no physical contact. Readings are simulated in this demo.
               </p>
             </div>
 
@@ -139,7 +139,7 @@ export default function LandingPage() {
                 <div className="w-7 h-7 rounded-full bg-black text-white font-extrabold flex items-center justify-center text-xs shrink-0">1</div>
                 <h4 className="font-black text-sm text-black">Input & camera scan</h4>
               </div>
-              <p className="text-xs text-zinc-600 font-medium leading-relaxed">Presage camera vitals + Web Speech API recognition.</p>
+              <p className="text-xs text-zinc-600 font-medium leading-relaxed">Camera vitals scan + Web Speech API voice input.</p>
             </div>
 
             <div className="hidden lg:flex items-center justify-center text-zinc-400 font-bold text-xl shrink-0 self-center">→</div>

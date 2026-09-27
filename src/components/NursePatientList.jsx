@@ -485,7 +485,7 @@ export default function NursePatientList({
 
                         <div className="flex items-center gap-1.5 text-[11px]">
                           <span className="text-zinc-500 font-medium">
-                            {vitalsObj?.source === 'nurse' ? 'Nurse' : patient.vitalsSource?.includes('Simulated') ? 'Camera (simulated)' : 'Camera'} · {vitalsAgeMins === 0 ? 'Just now' : `${formatDuration(vitalsAgeMins)} ago`}
+                            {vitalsObj?.source === 'nurse' ? 'Nurse' : 'Camera (simulated)'} · {vitalsAgeMins === 0 ? 'Just now' : `${formatDuration(vitalsAgeMins)} ago`}
                           </span>
 
                           {patient.recheckRequestedByNurse ? (

@@ -54,7 +54,7 @@ export async function POST(req) {
       pulse,
       breathingRate,
       vitalsConfidence: Math.round(((latestVitals.pulseConf + latestVitals.breathConf) / 2) * 100),
-      vitalsSource: latestVitals.simulated ? 'Presage Telemetry (Simulated)' : 'Presage Optical Camera SDK',
+      vitalsSource: 'Camera (simulated)',
       transcript: fullTranscript,
       originalTranscript: transcript,
       llmSuggestedLevel: analysis.llmSuggestedLevel,

@@ -54,8 +54,8 @@ export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSub
   const subStepRef = useRef('symptoms');
 
   const ageMonths = checkinMeta?.ageMonths ?? 540;
-  const sex = checkinMeta?.sex || 'M';
-  const canAskPregnancy = (sex === 'F' || sex === 'I') && ageMonths >= 144 && ageMonths <= 660;
+  // everyone 12-55 except patients who said male; unknown sex still gets asked
+  const canAskPregnancy = checkinMeta?.sex !== 'M' && ageMonths >= 144 && ageMonths <= 660;
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;

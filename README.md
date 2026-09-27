@@ -1,62 +1,77 @@
 # VoxVital
 
-ER waiting-room check-in kiosk with touchless camera vitals, voice intake in 7 languages, and a live nurse station. Safety rules set the minimum priority; a nurse confirms every level. Built at Hack the Hill III.
+ER waiting-room check-in kiosk with camera vitals, voice intake in 7 languages, and a live nurse station. Safety rules set the minimum priority; a nurse confirms every level. Built at Hack the Hill III.
 
-## Getting Started
+## What it does
 
-### 1. Install Dependencies
+**Kiosk** (`/kiosk`)
+- Works in English, French, Spanish, Arabic, Punjabi, Mandarin and Russian
+- 30-second camera vitals scan (pulse and breathing rate, simulated in this demo)
+- Patient describes symptoms by voice or typing
+- Asks up to 3 spoken follow-up questions in the patient's language, then a few quick questions (allergies, medicines, onset)
+- Gives a ticket number and a QR code to follow their place in line
+
+**Nurse station** (`/nurse`)
+- Live queue sorted by triage level, with the reasons behind each suggested level
+- The nurse confirms or changes every level, adds vitals, and calls the patient
+- Can send a short message to the patient's phone or ask them for a re-check
+
+**Waiting room screen** (`/board`)
+- Shows the ticket being called and recent calls, and announces each call out loud
+
+**Patient's phone** (from the QR code)
+- Place in line, in the patient's language, updated live
+- Nurse messages, and a "feeling worse?" form that updates their triage
+
+## How triage works
+
+Rules based on the Canadian Triage and Acuity Scale (CTAS) look at symptoms, vitals, pain and age to set a minimum level. Gemini can raise the priority but never lower it, and a nurse confirms every level.
+
+## Tech stack
+
+- **Next.js 16** and **React 19**, styled with **Tailwind CSS**, **Lucide** icons and **Framer Motion**
+- **Google Gemini** (`gemini-3.8-flash`) for translating, summarizing and choosing follow-up questions
+- **ElevenLabs** for spoken questions and announcements
+- **Web Speech API** for voice input in the browser
+- **Server-Sent Events** for live updates between screens
+- **qrcode** for the patient's status link
+
+Patient data stays in memory and is never saved to disk.
+
+## Run it
+
 ```bash
 npm install
+cp .env.example .env.local   # then add your keys
+npm run dev                  # development
+npm run demo                 # production build, best for live demos
 ```
 
-### 2. Environment Setup
-Copy `.env.example` to `.env.local` and add your keys:
+Open [http://localhost:3000](http://localhost:3000).
 
-```env
-GEMINI_API_KEY=your_gemini_api_key
-ELEVENLABS_API_KEY=your_elevenlabs_api_key
-PRESAGE_API_KEY=your_presage_api_key
-```
+| Key | Used for | Without it |
+|---|---|---|
+| `GEMINI_API_KEY` | Symptom summaries and follow-up questions | Keyword-based fallback |
+| `ELEVENLABS_API_KEY` | Natural voice | The browser's built-in voice |
 
-All keys are optional. Without them VoxVital uses a keyword-based symptom parser, the browser's built-in voice, and simulated vitals.
+## Demo tips
 
-### 3. Run
-```bash
-npm run dev    # development
-npm run demo   # production build, use this for live demos
-```
+- The nurse station starts with five sample patients. Its **Demo** menu resets them.
+- The **Demo** button on the scan screen skips the scan or sets high readings.
+- Click anywhere on the waiting room screen once so it can play sound.
+- Phones on the same Wi-Fi can scan the QR code. Use Chrome for voice input.
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+## Sharing it online
 
-- Kiosk: `/kiosk`
-- Nurse station: `/nurse` (starts with five sample patients; the Demo menu resets them)
-- Waiting-room TV: `/board` announces each called ticket out loud automatically. Browsers block sound until a page is clicked, so click anywhere on the board once, or open it on the TV with sound allowed from the start:
-  ```bash
-  open -a "Google Chrome" --args --kiosk --autoplay-policy=no-user-gesture-required http://localhost:3000/board
-  ```
-  (Quit Chrome first; the flags only apply when Chrome starts.)
-- Patient phone view: scan the QR code on the kiosk's final screen
-
-The QR code uses the address the kiosk was opened on. From `localhost` it falls back to this laptop's Wi-Fi address, so phones on the same network can open it. Set `PUBLIC_BASE` in `.env.local` to override it.
-
-### 4. Share it online (optional)
-
-Patients live in memory and every screen holds a live connection, so VoxVital needs one long-running Node server. Serverless hosts like Vercel won't work. The simplest way to put it online is to run it on your laptop and open a Cloudflare Tunnel:
+VoxVital needs one long-running Node server, so serverless hosts like Vercel won't work. To share it from your laptop:
 
 ```bash
-brew install cloudflared
 npm run demo
 cloudflared tunnel --url http://localhost:3000
 ```
 
-Open the `https://….trycloudflare.com` link it prints and start the kiosk from there, so the QR codes use the public link and work on any phone. To host it permanently, use a service that runs a normal Node server, such as Render, Railway or Fly.io.
+Open the link it prints and start the kiosk from there so the QR codes use that link.
 
-Gemini, ElevenLabs and patient updates are rate limited per visitor so a public link can't drain your API credits.
+## License
 
-## Tech Stack
-
-- **Framework**: Next.js 16 (App Router), React 19, TailwindCSS, Lucide Icons
-- **Optical Vitals**: Presage facial micro-blush camera telemetry (rPPG signal processing)
-- **AI & Clinical Extraction**: Google Gemini 3.8 Flash (`@google/generative-ai`)
-- **Speech & Audio**: Browser Web Speech API (STT) + ElevenLabs Text-to-Speech (TTS)
-- **Real-Time Sync**: In-memory Server-Sent Events (SSE) streaming API
+MIT

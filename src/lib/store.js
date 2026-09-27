@@ -146,7 +146,8 @@ export async function addOrUpdatePatient(data) {
     meta: { ageMonths, age: data.age, vitalsSkipped, recheckRequested },
   });
 
-  const statusUrl = `${data.publicBase || publicBase()}/status?id=${id}`;
+  const languageCode = data.languageCode || existing?.languageCode || 'en';
+  const statusUrl = `${data.publicBase || publicBase()}/status?id=${id}&lang=${languageCode}`;
   let qrCodeDataUrl = existing?.qrCodeDataUrl || '';
   try {
     qrCodeDataUrl = await QRCode.toDataURL(statusUrl);
@@ -188,7 +189,7 @@ export async function addOrUpdatePatient(data) {
     rescanTimestamp: existing ? new Date().toISOString() : null,
     previousPulse: existing?.pulse ?? null,
     language: data.language || 'English',
-    languageCode: data.languageCode || 'en',
+    languageCode,
     chiefComplaint: data.chiefComplaint || transcript.trim() || 'Patient reported discomfort',
     symptoms,
     onset: data.onset || existing?.onset || 'Skipped',
@@ -213,7 +214,7 @@ export async function addOrUpdatePatient(data) {
       source: data.vitalsSource?.includes('Nurse') ? 'nurse' : 'camera',
       measuredAt: data.vitalsMeasuredAt || existing?.vitals?.measuredAt || (data.timestamp ? new Date(data.timestamp).getTime() : Date.now()),
     },
-    vitalsSource: vitalsSkipped ? 'Skipped / Nurse Vitals Required' : (data.vitalsSource || 'Presage Optical Camera SDK'),
+    vitalsSource: vitalsSkipped ? 'Skipped / Nurse Vitals Required' : (data.vitalsSource || 'Camera (simulated)'),
     originalTranscript: data.originalTranscript ?? transcript,
     verbatimTranslation: data.verbatimTranslation || existing?.verbatimTranslation || null,
     followUps: data.followUps?.length ? data.followUps : (existing?.followUps || []),
@@ -405,7 +406,6 @@ async function seedDemoPatients() {
       breathingRate: 25,
       vitalsConfidence: 96,
       vitalsMeasuredAt: minsAgo(12),
-      vitalsSource: 'Presage Optical Camera SDK',
       transcript: "J'ai une forte douleur à la poitrine depuis 20 minutes, ça me serre fort et ça descend dans le bras gauche.",
       verbatimTranslation: "I have strong chest pain for 20 minutes, it's squeezing hard and going down my left arm.",
       allergies: 'Penicillin',
@@ -449,7 +449,6 @@ async function seedDemoPatients() {
       breathingRate: 24,
       vitalsConfidence: 91,
       vitalsMeasuredAt: minsAgo(45),
-      vitalsSource: 'Presage Optical Camera SDK',
       transcript: 'ਮੈਂ ਬਿਲਕੁਲ ਠੀਕ ਹਾਂ, ਬੱਸ ਥੋੜ੍ਹਾ ਜਿਹਾ ਚੱਕਰ ਆ ਰਿਹਾ ਸੀ।',
       llmSuggestedLevel: 3,
       timestamp: new Date(minsAgo(45)).toISOString(),
@@ -470,7 +469,6 @@ async function seedDemoPatients() {
       breathingRate: 15,
       vitalsConfidence: 97,
       vitalsMeasuredAt: minsAgo(75),
-      vitalsSource: 'Presage Optical Camera SDK',
       transcript: 'Me doblé el tobillo derecho jugando al fútbol, puedo caminar pero me duele.',
       llmSuggestedLevel: 4,
       timestamp: new Date(minsAgo(75)).toISOString(),
@@ -491,7 +489,6 @@ async function seedDemoPatients() {
       breathingRate: 14,
       vitalsConfidence: 99,
       vitalsMeasuredAt: minsAgo(110),
-      vitalsSource: 'Presage Optical Camera SDK',
       transcript: '我需要开一份常规的破伤风疫苗补打和复诊证明。',
       llmSuggestedLevel: 5,
       timestamp: new Date(minsAgo(110)).toISOString(),

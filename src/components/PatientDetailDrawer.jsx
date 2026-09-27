@@ -181,9 +181,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
   historyEntries.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
 
   const vitalsTimeStr = formatHHMM(patient.vitals?.measuredAt || patient.timestamp);
-  const vitalsSourceStr = patient.vitals?.source === 'nurse'
-    ? 'Nurse'
-    : patient.vitalsSource?.includes('Simulated') ? 'Camera (simulated)' : 'Camera';
+  const vitalsSourceStr = patient.vitals?.source === 'nurse' ? 'Nurse' : 'Camera (simulated)';
 
   const NO_ANSWER = ['None reported', 'Skipped', 'Not answered', 'None', 'No'];
   const hasAllergies = !!patient.allergies && !NO_ANSWER.includes(patient.allergies);
@@ -579,7 +577,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               Message patient&apos;s phone
             </h3>
             <p className="text-[11px] text-zinc-500 font-medium">
-              Shows on their status page in {patient.language} and is read aloud if they turned on alerts.
+              Shows on their phone status page in {patient.language}.
             </p>
 
             <div className="space-y-2 pt-1">

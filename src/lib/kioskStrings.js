@@ -8,7 +8,7 @@ export const LANGUAGES = [
   { code: 'ru', name: 'Russian', native: 'Русский' },
 ];
 
-export const KIOSK_STRINGS = {
+const KIOSK_STRINGS = {
   en: {
     title: 'Emergency Check-In',
     subtitle: 'Scan vitals. Speak symptoms in your language.',

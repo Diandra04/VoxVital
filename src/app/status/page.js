@@ -1,8 +1,21 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { HeartPulse, AlertTriangle, CheckCircle2, ShieldCheck, RefreshCw } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { AlertTriangle, CheckCircle2, ShieldCheck, RefreshCw, Bell, BellRing, MessageSquare, X } from 'lucide-react';
+import { phoneStrings } from '@/lib/phoneStrings';
+import { speak, speakInBrowser } from '@/lib/speech';
+import Logo from '@/components/Logo';
+
+const STORAGE_KEY = 'voxvital-patient-id';
+
+function readSavedId() {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 function NotFound({ message }) {
   return (
@@ -14,15 +27,120 @@ function NotFound({ message }) {
   );
 }
 
+function Loading() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3 text-black">
+      <div className="w-8 h-8 border-3 border-black border-t-transparent rounded-full animate-spin" />
+      <span className="text-sm font-mono font-bold">Loading your queue status...</span>
+    </div>
+  );
+}
+
+function UpdateForm({ id, ui }) {
+  const [text, setText] = useState('');
+  const [pain, setPain] = useState(5);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSend = async () => {
+    setSending(true);
+    try {
+      const res = await fetch(`/api/recheck/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: text, painScore: pain }),
+      });
+      if ((await res.json()).success) {
+        setSent(true);
+        setText('');
+      }
+    } catch {
+      // keep text for retry
+    }
+    setSending(false);
+  };
+
+  if (sent) {
+    return (
+      <div className="w-full p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-sm font-bold flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-left">
+          <CheckCircle2 className="w-5 h-5 shrink-0" />
+          {ui.sent}
+        </span>
+        <button onClick={() => setSent(false)} className="text-xs underline shrink-0">
+          {ui.updateTitle}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full p-4 rounded-2xl bg-zinc-50 border-2 border-black space-y-3 text-left">
+      <h3 className="text-base font-black text-black">{ui.updateTitle}</h3>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={ui.updatePlaceholder}
+        className="w-full min-h-[80px] bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black text-sm font-medium"
+      />
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs font-bold text-zinc-700">
+          <span>{ui.painNow}</span>
+          <span className="text-black">{pain} / 10</span>
+        </div>
+        <div className="grid grid-cols-11 gap-1">
+          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setPain(n)}
+              className={`py-2 rounded-lg text-xs font-bold border ${
+                pain === n ? 'bg-black text-white border-black' : 'bg-white text-zinc-700 border-zinc-300'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button
+        onClick={handleSend}
+        disabled={!text.trim() || sending}
+        className="w-full py-3.5 rounded-xl bg-black text-white font-black text-base disabled:opacity-40"
+      >
+        {ui.send}
+      </button>
+    </div>
+  );
+}
+
 function StatusContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const id = searchParams.get('id');
+  // /status with no id goes back to the saved check-in
+  const savedId = id ? null : readSavedId();
 
   const [statusData, setStatusData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [rechecked, setRechecked] = useState(false);
   const [error, setError] = useState(null);
-  const playedRecheckAudio = useRef(false);
+  const [rechecked, setRechecked] = useState(false);
+  const [alertsOn, setAlertsOn] = useState(false);
+  const [dismissedMessageAt, setDismissedMessageAt] = useState(null);
+  const alertsOnRef = useRef(false);
+  const lastSeen = useRef(null);
+
+  useEffect(() => {
+    if (id) {
+      try {
+        localStorage.setItem(STORAGE_KEY, id);
+      } catch {
+        // ignore
+      }
+    } else if (savedId) {
+      router.replace(`/status?id=${savedId}`);
+    }
+  }, [id, savedId, router]);
 
   useEffect(() => {
     if (!id) return;
@@ -37,6 +155,11 @@ function StatusContent() {
           if (data.recheckRequested) setRechecked(true);
         } else {
           setError(data.error || 'Patient not found');
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+          } catch {
+            // ignore
+          }
         }
       } catch {
         setError('Network connection error');
@@ -44,177 +167,180 @@ function StatusContent() {
       setLoading(false);
     };
 
-    fetchStatus();
+    // phones pause background tabs
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchStatus();
+    };
 
-    const eventSource = new EventSource('/api/triage/stream');
+    fetchStatus();
+    const eventSource = new EventSource('/api/triage/stream?view=public');
     eventSource.addEventListener('triage_update', fetchStatus);
     const interval = setInterval(fetchStatus, 4000);
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(interval);
       eventSource.close();
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [id]);
 
-  const isNurseRecheck = !!statusData?.recheckRequestedByNurse;
+  const ui = phoneStrings(statusData?.languageCode);
   const languageCode = statusData?.languageCode || 'en';
+  const status = statusData?.status;
+  const isCalled = status === 'called' || status === 'seen';
+  const isNurseRecheck = !!statusData?.recheckRequestedByNurse;
+  const message = statusData?.phoneMessage;
+  const messageText = message && ui.messages[message.key];
 
-  // Buzz and speak once when the nurse asks the patient to come back
+  // alert on call / message / re-check, but not on first load
   useEffect(() => {
-    if (!isNurseRecheck || playedRecheckAudio.current) return;
-    playedRecheckAudio.current = true;
+    if (!status) return;
+    const prev = lastSeen.current;
+    lastSeen.current = { status, messageAt: message?.at, isNurseRecheck };
+    if (!prev) return;
 
-    if ('vibrate' in navigator) {
-      navigator.vibrate([300, 100, 300, 100, 300]);
-    }
+    let text = null;
+    if (message?.at && message.at !== prev.messageAt) text = messageText;
+    else if (isCalled && prev.status !== 'called' && prev.status !== 'seen') text = ui.calledBody;
+    else if (isNurseRecheck && !prev.isNurseRecheck) text = ui.recheckBody;
+    if (!text) return;
 
-    const text = languageCode === 'fr'
-      ? 'Veuillez retourner au guichet pour une vérification rapide.'
-      : 'Please go back to the kiosk for a quick re-check.';
+    navigator.vibrate?.([300, 100, 300, 100, 300]);
+    if (alertsOnRef.current) speak(text, languageCode);
+  }, [status, message?.at, messageText, isCalled, isNurseRecheck, ui, languageCode]);
 
-    const speakInBrowser = () => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = languageCode;
-      window.speechSynthesis?.speak(utterance);
-    };
+  useEffect(() => {
+    if (!statusData) return;
+    document.title = isCalled ? `${ui.calledTitle} · VoxVital` : `${statusData.ahead} ${ui.ahead} · VoxVital`;
+  }, [statusData, isCalled, ui]);
 
-    fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, langCode: languageCode }),
-    })
-      .then(async (res) => {
-        if (!res.headers.get('Content-Type')?.includes('audio')) return speakInBrowser();
-        await new Audio(URL.createObjectURL(await res.blob())).play();
-      })
-      .catch(speakInBrowser);
-  }, [isNurseRecheck, languageCode]);
+  // audio needs a user gesture first
+  const enableAlerts = () => {
+    alertsOnRef.current = true;
+    setAlertsOn(true);
+    speakInBrowser(ui.alertsOn, languageCode);
+    navigator.vibrate?.(200);
+  };
 
   const handleFeelingWorse = async () => {
-    if (!id) return;
     try {
       const res = await fetch(`/api/recheck/${id}`, { method: 'POST' });
-      const data = await res.json();
-      if (data.success) setRechecked(true);
+      if ((await res.json()).success) setRechecked(true);
     } catch {
-      // stays enabled so they can tap again
+      // ignore
     }
   };
 
   if (!id) {
-    return <NotFound message="No patient ID provided in URL" />;
+    return savedId ? <Loading /> : <NotFound message="Scan the QR code on your check-in screen to follow your place in line." />;
   }
+  if (loading) return <Loading />;
+  if (!statusData) return <NotFound message={error} />;
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3 text-black">
-        <div className="w-8 h-8 border-3 border-black border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm font-mono font-bold">Loading your queue status...</span>
-      </div>
-    );
-  }
-
-  // Keep showing the last good status through a brief network hiccup
-  if (!statusData) {
-    return <NotFound message={error} />;
-  }
-
-  const { ahead, status, ui } = statusData;
-  const isCalled = status === 'called' || status === 'seen';
+  const showMessage = messageText && message.at !== dismissedMessageAt;
+  const showUpdateForm = !isCalled && (rechecked || isNurseRecheck);
 
   return (
-    <div className="flex flex-col items-center justify-between min-h-[85vh] p-4 text-center max-w-md mx-auto w-full bg-white text-black font-sans">
+    <div
+      dir={languageCode === 'ar' ? 'rtl' : 'ltr'}
+      className="flex flex-col items-center min-h-[85vh] p-4 text-center max-w-md mx-auto w-full bg-white text-black font-sans space-y-5"
+    >
       <div className="space-y-3 pt-2 w-full">
-        <div className="flex items-center justify-center gap-2">
-          <div className="p-2 bg-black rounded-lg text-white font-bold">
-            <HeartPulse className="w-5 h-5 text-white" />
-          </div>
-          <span className="font-extrabold text-xl text-black tracking-tight">
-            Vox<span className="text-blue-600">Vital</span> Mobile
-          </span>
+        <div className="flex items-center justify-center">
+          <Logo size="sm" />
         </div>
-
         <h1 className="text-2xl font-black text-black">{ui.title}</h1>
       </div>
 
-      <div className="my-6 w-full">
-        {isNurseRecheck ? (
-          <div className="bg-amber-500 border-4 border-amber-600 text-white rounded-2xl p-8 space-y-4 animate-pulse shadow-xl text-center">
-            <div className="w-16 h-16 rounded-full bg-white text-amber-600 flex items-center justify-center mx-auto shadow-md">
-              <RefreshCw className="w-10 h-10 text-amber-600 animate-spin" />
-            </div>
-            <h2 className="text-2xl font-black text-white tracking-tight uppercase">
-              RE-CHECK REQUESTED
-            </h2>
-            <div className="p-4 bg-white text-black rounded-xl border border-amber-200">
-              <p className="text-lg font-black text-amber-900 tracking-tight">
-                Please go back to the kiosk for a quick re-check.
-              </p>
-            </div>
-            <p className="text-xs text-white/90 font-bold">
-              RN Didi requested updated vital signs.
-            </p>
+      {showMessage && (
+        <div className="w-full p-4 rounded-2xl bg-blue-600 text-white text-left flex items-start gap-3">
+          <MessageSquare className="w-6 h-6 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <span className="text-xs font-bold uppercase tracking-wider opacity-80 block">{ui.messageFrom}</span>
+            <p className="text-lg font-black leading-snug">{messageText}</p>
           </div>
-        ) : !isCalled ? (
-          <div className="bg-zinc-50 border-2 border-black rounded-2xl p-8 space-y-2 shadow-2xs">
-            <span className="text-xs uppercase tracking-wider text-zinc-600 font-bold block">CURRENT POSITION</span>
-            <div className="text-6xl md:text-7xl font-black text-black tracking-tight my-2">
-              {ahead}
-            </div>
-            <p className="text-lg font-black text-black">{ui.ahead}</p>
-            <p className="text-xs text-zinc-600 pt-2 border-t border-zinc-200 font-medium">
-              Updates in real-time as patients are triaged.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-red-600 border-4 border-red-700 text-white rounded-2xl p-8 space-y-4 animate-pulse shadow-xl text-center">
-            <div className="w-16 h-16 rounded-full bg-white text-red-600 flex items-center justify-center mx-auto shadow-md">
+          <button onClick={() => setDismissedMessageAt(message.at)} aria-label="Dismiss" className="p-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
+      <div className="w-full">
+        {isCalled ? (
+          <div className="bg-red-600 border-4 border-red-700 text-white rounded-2xl p-8 space-y-4 animate-pulse text-center">
+            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-10 h-10 text-red-600" />
             </div>
-            <h2 className="text-2xl font-black text-white tracking-tight uppercase">
-              YOU ARE BEING CALLED
-            </h2>
-            <div className="p-4 bg-white text-black rounded-xl border border-red-200">
-              <p className="text-2xl font-black text-red-600 uppercase tracking-tight">
-                Please come to room 3
-              </p>
+            <h2 className="text-2xl font-black text-white tracking-tight uppercase">{ui.calledTitle}</h2>
+            <div className="p-4 bg-white rounded-xl">
+              <p className="text-2xl font-black text-red-600 tracking-tight">{ui.calledBody}</p>
             </div>
-            <p className="text-xs text-white/90 font-bold">
-              A triage nurse is ready to assess you at Room 3.
-            </p>
+          </div>
+        ) : isNurseRecheck ? (
+          <div className="bg-amber-500 border-4 border-amber-600 text-white rounded-2xl p-6 space-y-3 text-center">
+            <RefreshCw className="w-10 h-10 mx-auto" />
+            <h2 className="text-2xl font-black tracking-tight uppercase">{ui.recheckTitle}</h2>
+            <p className="text-base font-bold">{ui.recheckBody}</p>
+          </div>
+        ) : (
+          <div className="bg-zinc-50 border-2 border-black rounded-2xl p-8 space-y-2">
+            <span className="text-xs uppercase tracking-wider text-zinc-600 font-bold block">{ui.position}</span>
+            <div className="text-6xl md:text-7xl font-black text-black tracking-tight my-2">{statusData.ahead}</div>
+            <p className="text-lg font-black text-black">{ui.ahead}</p>
           </div>
         )}
       </div>
 
       {!isCalled && (
-        <div className="w-full space-y-4">
-          <button
-            onClick={handleFeelingWorse}
-            disabled={rechecked}
-            className={`w-full py-4 px-6 rounded font-black text-base transition-all flex items-center justify-center gap-2 ${
-              rechecked
-                ? 'bg-zinc-200 text-black border border-zinc-400 cursor-default'
-                : 'bg-black text-white hover:bg-zinc-800'
-            }`}
-          >
-            <RefreshCw className="w-5 h-5 text-white" />
-            <span>{rechecked ? ui.notified : ui.feelingWorse}</span>
-          </button>
-
-          <p className="text-[11px] text-zinc-600 flex items-center justify-center gap-1 font-semibold">
-            <ShieldCheck className="w-3.5 h-3.5 text-black" />
-            <span>Hospital ER Triage Support • Nurse confirmed</span>
-          </p>
+        <div className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-zinc-200 bg-zinc-50">
+          <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider">{ui.ticket}</span>
+          <span className="text-2xl font-black text-black">{statusData.ticketNumber}</span>
         </div>
       )}
+
+      {showUpdateForm && (
+        <>
+          <UpdateForm id={id} ui={ui} />
+          <p className="text-xs text-zinc-700 font-semibold leading-relaxed text-left w-full">{ui.kioskSteps}</p>
+        </>
+      )}
+
+      {!isCalled && !showUpdateForm && (
+        <button
+          onClick={handleFeelingWorse}
+          className="w-full py-4 px-6 rounded-xl font-black text-base bg-black text-white hover:bg-zinc-800 flex items-center justify-center gap-2"
+        >
+          <RefreshCw className="w-5 h-5" />
+          <span>{ui.feelingWorse}</span>
+        </button>
+      )}
+
+      <button
+        onClick={enableAlerts}
+        disabled={alertsOn}
+        className={`w-full py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 border ${
+          alertsOn ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-white text-black border-zinc-300'
+        }`}
+      >
+        {alertsOn ? <BellRing className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+        <span>{alertsOn ? ui.alertsOn : ui.alertsOff}</span>
+      </button>
+
+      <p className="text-xs text-zinc-500 font-medium">{ui.live}</p>
+
+      <p className="text-[11px] text-zinc-600 flex items-center justify-center gap-1 font-semibold">
+        <ShieldCheck className="w-3.5 h-3.5 text-black" />
+        <span>Hospital ER Triage Support • Nurse confirmed</span>
+      </p>
     </div>
   );
 }
 
 export default function MobileStatusPage() {
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col justify-between p-4 font-sans">
-      <Suspense fallback={<div className="text-center p-8 text-black font-bold">Loading mobile status...</div>}>
+    <div className="min-h-screen bg-white text-black flex flex-col p-4 font-sans">
+      <Suspense fallback={<Loading />}>
         <StatusContent />
       </Suspense>
     </div>

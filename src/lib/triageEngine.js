@@ -48,7 +48,6 @@ const RED_FLAG_SYMPTOMS = [
   { term: 'won\'t drink', level: 2, paedOnly: true, reason: 'Fluid refusal' },
 ];
 
-// Acute red flags only (cardiac, stroke, airway), not every CTAS modifier.
 export function hasTrueRedFlag(patient) {
   if (!patient) return false;
   const trueKeywords = [
@@ -177,7 +176,6 @@ export function calculateTriage({
     }
   }
 
-  // Age-adjusted vital sign thresholds
   if (!vitalsSkipped && (pulse !== null || breathingRate !== null)) {
     const numericPulse = Number(pulse);
     const numericBreathing = Number(breathingRate);
@@ -232,7 +230,6 @@ export function calculateTriage({
     reasons.push({ text: `Pain rated ${numericPain}/10 by patient`, source: 'patient', level: 4 });
   }
 
-  // Flag answers that don't match what the camera measured
   if (!vitalsSkipped) {
     const numericPulse = Number(pulse) || 75;
     const numericBreathing = Number(breathingRate) || 16;
@@ -251,11 +248,11 @@ export function calculateTriage({
     if (hasLowClaim && isVitalsAbnormal) {
       mismatchFlags.push('Readings higher than symptoms suggest');
       rulesTriggered.push(`Patient reports minimal distress, but physiological scan indicates elevated metrics (Pulse ${numericPulse}, Resp ${numericBreathing})`);
-      reasons.push({ text: `Says he feels fine · camera scan detects elevated pulse (${numericPulse} bpm)`, source: 'vitals', level: 2 });
+      reasons.push({ text: `Says they feel fine · camera scan detects elevated pulse (${numericPulse} bpm)`, source: 'vitals', level: 2 });
     }
   }
 
-  // The LLM can only raise priority, never lower it.
+  // LLM can only raise priority, never lower it
   let finalSuggestedLevel = deterministicLevel;
   const llmLevel = Number(llmSuggestedLevel);
   if (llmLevel >= 1 && llmLevel <= 5 && llmLevel < deterministicLevel) {

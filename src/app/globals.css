@@ -8,13 +8,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Flat look everywhere, regardless of utility classes */
-*, *::before, *::after {
-  box-shadow: none !important;
-  text-shadow: none !important;
-  filter: none !important;
-}
-
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

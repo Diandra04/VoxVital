@@ -47,7 +47,7 @@ export default function MedicalAnimationFigure() {
         className="absolute inset-6 rounded-full border border-blue-300 bg-blue-50/30"
       />
 
-      <div className="relative w-72 h-72 sm:w-80 sm:h-80 rounded-3xl bg-white border border-zinc-200 p-6 overflow-hidden flex flex-col justify-between shadow-xl">
+      <div className="relative w-72 h-72 sm:w-80 sm:h-80 rounded-3xl bg-white border border-zinc-200 p-6 overflow-hidden flex flex-col justify-between">
         <div className="absolute top-4 left-4 w-4 h-4 border-t-2 border-l-2 border-blue-600 rounded-tl-xs" />
         <div className="absolute top-4 right-4 w-4 h-4 border-t-2 border-r-2 border-blue-600 rounded-tr-xs" />
         <div className="absolute bottom-4 left-4 w-4 h-4 border-b-2 border-l-2 border-blue-600 rounded-bl-xs" />
@@ -69,7 +69,7 @@ export default function MedicalAnimationFigure() {
           <motion.div
             animate={{ y: [-48, 48, -48] }}
             transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute w-44 h-0.5 bg-gradient-to-r from-transparent via-blue-500 to-transparent shadow-[0_0_12px_rgba(37,99,235,0.8)] z-10"
+            className="absolute w-44 h-0.5 bg-gradient-to-r from-transparent via-blue-500 to-transparent z-10"
           />
 
           <svg className="w-36 h-36 text-blue-400" viewBox="0 0 100 100" fill="none">
@@ -81,7 +81,7 @@ export default function MedicalAnimationFigure() {
           <motion.div
             animate={{ y: [-3, 3, -3] }}
             transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute -left-2 top-2 bg-white border border-red-200 shadow-md px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 text-red-600"
+            className="absolute -left-2 top-2 bg-white border border-red-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 text-red-600"
           >
             <Heart className="w-4 h-4 text-red-600 fill-red-600 shrink-0 animate-pulse" />
             <span className="font-black text-red-600">{pulseVal} bpm</span>
@@ -90,7 +90,7 @@ export default function MedicalAnimationFigure() {
           <motion.div
             animate={{ y: [3, -3, 3] }}
             transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute -right-2 bottom-2 bg-white border border-zinc-200 shadow-md px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 text-zinc-900"
+            className="absolute -right-2 bottom-2 bg-white border border-zinc-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 text-zinc-900"
           >
             <Wind className="w-4 h-4 text-blue-600 shrink-0" />
             <span>{breathVal} breaths/min</span>
@@ -108,7 +108,7 @@ export default function MedicalAnimationFigure() {
               className="w-full flex items-center justify-between"
             >
               {scanStep === 'done' ? (
-                <div className="w-full py-1.5 px-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-extrabold text-[11px] flex items-center justify-between shadow-2xs">
+                <div className="w-full py-1.5 px-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-extrabold text-[11px] flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <span>Suggested level 2 · sent to nurse</span>

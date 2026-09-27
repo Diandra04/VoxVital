@@ -1,29 +1,25 @@
 import Link from 'next/link';
 import DisclaimerBanner from '@/components/DisclaimerBanner';
 import MedicalAnimationFigure from '@/components/MedicalAnimationFigure';
-import { Triangle, Camera, Globe, ShieldCheck, Activity } from 'lucide-react';
+import Logo from '@/components/Logo';
+import { Camera, Globe, ShieldCheck, Activity, Monitor } from 'lucide-react';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-white text-black flex flex-col justify-between font-sans selection:bg-blue-600 selection:text-white">
       <nav className="px-6 py-4 bg-white sticky top-0 z-40 border-b border-zinc-200">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-full text-white flex items-center justify-center shrink-0 shadow-md">
-              <Triangle className="w-5 h-5 fill-white text-white" />
-            </div>
-            <span className="font-extrabold text-2xl tracking-tight text-black">
-              Vox<span className="text-blue-600">Vital</span>
-            </span>
+          <Link href="/">
+            <Logo />
           </Link>
 
           <div className="flex items-center gap-3">
             <Link
               href="/kiosk"
-              className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white font-extrabold text-sm transition-all shadow-xs flex items-center gap-2"
+              className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black font-extrabold text-sm transition-all flex items-center gap-2"
             >
-              <Camera className="w-4 h-4" />
-              <span>Open kiosk</span>
+              <Camera className="w-4 h-4 text-black" />
+              <span>Kiosk</span>
             </Link>
 
             <Link
@@ -31,7 +27,15 @@ export default function LandingPage() {
               className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black font-extrabold text-sm transition-all flex items-center gap-2"
             >
               <Activity className="w-4 h-4 text-black" />
-              <span>Open nurse station</span>
+              <span>Nurse station</span>
+            </Link>
+
+            <Link
+              href="/board"
+              className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black font-extrabold text-sm transition-all flex items-center gap-2"
+            >
+              <Monitor className="w-4 h-4 text-black" />
+              <span>Waiting room</span>
             </Link>
           </div>
         </div>
@@ -52,24 +56,6 @@ export default function LandingPage() {
               VoxVital replaces long, uncertain ER waits with a camera-based vitals scan,
               multilingual voice interaction, and safe, rule-based priority.
             </p>
-
-            <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
-              <Link
-                href="/kiosk"
-                className="w-full sm:w-auto py-4 px-8 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors shadow-md"
-              >
-                <Camera className="w-6 h-6" />
-                <span>Open kiosk</span>
-              </Link>
-
-              <Link
-                href="/nurse"
-                className="w-full sm:w-auto py-4 px-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black font-black text-xl flex items-center justify-center gap-3 transition-colors shadow-2xs"
-              >
-                <Activity className="w-6 h-6 text-black" />
-                <span>Open nurse station</span>
-              </Link>
-            </div>
 
             <div className="pt-6 border-t border-zinc-200 grid grid-cols-2 sm:grid-cols-4 gap-4 text-left">
               <div>
@@ -107,7 +93,7 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="p-6 rounded-2xl bg-white border border-zinc-300 space-y-4 shadow-2xs">
+            <div className="p-6 rounded-2xl bg-white border border-zinc-300 space-y-4">
               <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold">
                 <Camera className="w-6 h-6 text-blue-600" />
               </div>
@@ -117,17 +103,17 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <div className="p-6 rounded-2xl bg-white border border-zinc-300 space-y-4 shadow-2xs">
+            <div className="p-6 rounded-2xl bg-white border border-zinc-300 space-y-4">
               <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold">
                 <Globe className="w-6 h-6 text-blue-600" />
               </div>
               <h3 className="text-xl font-black text-black">2. Voice in any language</h3>
               <p className="text-zinc-700 text-sm leading-relaxed font-medium">
-                Patients describe symptoms in English, French, Spanish, Arabic, Punjabi, Mandarin, or Russian using Web Speech API. Gemini 2.5 Flash structures the record; ElevenLabs speaks back in their language.
+                Patients describe symptoms in English, French, Spanish, Arabic, Punjabi, Mandarin, or Russian using Web Speech API. Gemini 3.8 Flash structures the record; ElevenLabs speaks back in their language.
               </p>
             </div>
 
-            <div className="p-6 rounded-2xl bg-white border border-zinc-300 space-y-4 shadow-2xs">
+            <div className="p-6 rounded-2xl bg-white border border-zinc-300 space-y-4">
               <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold">
                 <ShieldCheck className="w-6 h-6 text-blue-600" />
               </div>
@@ -148,7 +134,7 @@ export default function LandingPage() {
 
         <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-6 md:p-8 text-black space-y-6">
           <div className="flex flex-col lg:flex-row items-stretch justify-between gap-4 text-left">
-            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 shadow-2xs flex-1 w-full flex flex-col justify-between h-full">
+            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 flex-1 w-full flex flex-col justify-between h-full">
               <div className="space-y-2">
                 <div className="w-7 h-7 rounded-full bg-black text-white font-extrabold flex items-center justify-center text-xs shrink-0">1</div>
                 <h4 className="font-black text-sm text-black">Input & camera scan</h4>
@@ -158,17 +144,17 @@ export default function LandingPage() {
 
             <div className="hidden lg:flex items-center justify-center text-zinc-400 font-bold text-xl shrink-0 self-center">→</div>
 
-            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 shadow-2xs flex-1 w-full flex flex-col justify-between h-full">
+            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 flex-1 w-full flex flex-col justify-between h-full">
               <div className="space-y-2">
                 <div className="w-7 h-7 rounded-full bg-black text-white font-extrabold flex items-center justify-center text-xs shrink-0">2</div>
-                <h4 className="font-black text-sm text-black">Gemini 2.5 Flash</h4>
+                <h4 className="font-black text-sm text-black">Gemini 3.8 Flash</h4>
               </div>
               <p className="text-xs text-zinc-600 font-medium leading-relaxed">Translates to English & extracts symptoms and timing.</p>
             </div>
 
             <div className="hidden lg:flex items-center justify-center text-zinc-400 font-bold text-xl shrink-0 self-center">→</div>
 
-            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 shadow-2xs flex-1 w-full flex flex-col justify-between h-full">
+            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 flex-1 w-full flex flex-col justify-between h-full">
               <div className="space-y-2">
                 <div className="w-7 h-7 rounded-full bg-black text-white font-extrabold flex items-center justify-center text-xs shrink-0">3</div>
                 <h4 className="font-black text-sm text-black">Safety rules first</h4>
@@ -178,7 +164,7 @@ export default function LandingPage() {
 
             <div className="hidden lg:flex items-center justify-center text-zinc-400 font-bold text-xl shrink-0 self-center">→</div>
 
-            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 shadow-2xs flex-1 w-full flex flex-col justify-between h-full">
+            <div className="bg-white border border-zinc-300 p-5 rounded-xl space-y-3 flex-1 w-full flex flex-col justify-between h-full">
               <div className="space-y-2">
                 <div className="w-7 h-7 rounded-full bg-black text-white font-extrabold flex items-center justify-center text-xs shrink-0">4</div>
                 <h4 className="font-black text-sm text-black">Live updates & nurse station</h4>

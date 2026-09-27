@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAllPatientsSorted, addOrUpdatePatient, resetStore } from '@/lib/store';
 import { analyzeTranscriptWithGemini } from '@/lib/gemini';
 import { getLatestVitals } from '@/lib/vitals';
+import { rateLimit, requestBaseUrl } from '@/lib/http';
 
 export async function GET() {
   try {
@@ -13,9 +14,13 @@ export async function GET() {
 }
 
 export async function POST(req) {
+  const limited = rateLimit(req, 'triage', 20);
+  if (limited) return limited;
+
   try {
     const {
       transcript = '',
+      followUp,
       painScore = 0,
       pulse: rawPulse,
       breathingRate: rawBreathing,
@@ -26,15 +31,19 @@ export async function POST(req) {
       ...intake
     } = await req.json();
 
-    // Fall back to the latest camera reading if the kiosk didn't send vitals
     const latestVitals = getLatestVitals();
     const pulse = vitalsSkipped ? null : (rawPulse != null ? Number(rawPulse) : latestVitals.pulse);
     const breathingRate = vitalsSkipped ? null : (rawBreathing != null ? Number(rawBreathing) : latestVitals.breathing);
 
-    const analysis = await analyzeTranscriptWithGemini({ transcript, pulse, breathingRate, painScore });
+    const answer = followUp?.answer?.trim();
+    const fullTranscript = answer ? `${transcript} ${answer}` : transcript;
+
+    const analysis = await analyzeTranscriptWithGemini({ transcript: fullTranscript, pulse, breathingRate, painScore });
 
     const patient = await addOrUpdatePatient({
       ...intake,
+      publicBase: requestBaseUrl(req),
+      followUp: answer ? followUp : null,
       vitalsSkipped,
       language: language || analysis.detectedLanguage,
       languageCode: languageCode || analysis.detectedLanguageCode,
@@ -46,7 +55,8 @@ export async function POST(req) {
       breathingRate,
       vitalsConfidence: Math.round(((latestVitals.pulseConf + latestVitals.breathConf) / 2) * 100),
       vitalsSource: latestVitals.simulated ? 'Presage Telemetry (Simulated)' : 'Presage Optical Camera SDK',
-      transcript,
+      transcript: fullTranscript,
+      originalTranscript: transcript,
       llmSuggestedLevel: analysis.llmSuggestedLevel,
     });
 

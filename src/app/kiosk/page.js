@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import DisclaimerBanner from '@/components/DisclaimerBanner';
-import KioskStartScreen, { LANGUAGES, TRANSLATIONS } from '@/components/KioskStartScreen';
+import Logo from '@/components/Logo';
+import KioskStartScreen from '@/components/KioskStartScreen';
 import KioskVitalsScan from '@/components/KioskVitalsScan';
 import KioskVoiceIntake from '@/components/KioskVoiceIntake';
 import KioskDoneScreen from '@/components/KioskDoneScreen';
 import { ArrowLeft, HelpCircle } from 'lucide-react';
+import { LANGUAGES, kioskStrings } from '@/lib/kioskStrings';
 
 export default function KioskPage() {
   const [step, setStep] = useState('start');
@@ -16,10 +18,11 @@ export default function KioskPage() {
   const [scannedVitals, setScannedVitals] = useState(null);
   const [patientResult, setPatientResult] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [helpBannerText, setHelpBannerText] = useState(null);
+  const [helpRequested, setHelpRequested] = useState(false);
+  const t = kioskStrings(selectedLang.code);
 
   useEffect(() => {
-    const eventSource = new EventSource('/api/triage/stream');
+    const eventSource = new EventSource('/api/triage/stream?view=public');
     eventSource.addEventListener('vitals', (e) => {
       const data = JSON.parse(e.data);
       setLiveVitals({
@@ -38,7 +41,7 @@ export default function KioskPage() {
   };
 
   const handleRequestHelp = async () => {
-    setHelpBannerText('Staff member notified — someone is coming to assist you.');
+    setHelpRequested(true);
     try {
       await fetch('/api/help', {
         method: 'POST',
@@ -46,12 +49,11 @@ export default function KioskPage() {
         body: JSON.stringify({ location: 'Walk-up Kiosk 1' }),
       });
     } catch {
-      // banner is already showing; staff can still be flagged down in person
+      // ignore
     }
   };
 
-  // Stable callbacks: live vitals re-render this page every second, which would
-  // otherwise restart the timers in the scan and done screens
+  // stable refs, live vitals rerender this page every second
   const handleScanComplete = useCallback((vitalsData) => {
     setScannedVitals(vitalsData);
     setStep('talk');
@@ -74,6 +76,7 @@ export default function KioskPage() {
           callVisually: checkinMeta.callVisually,
           vitalsSkipped: checkinMeta.vitalsSkipped,
           transcript: intakeData.transcript,
+          followUp: intakeData.followUp,
           painScore: intakeData.painScore,
           pulse: checkinMeta.vitalsSkipped ? null : intakeData.pulse,
           breathingRate: checkinMeta.vitalsSkipped ? null : intakeData.breathingRate,
@@ -93,39 +96,25 @@ export default function KioskPage() {
         setPatientResult(data.patient);
         setStep('done');
       } else {
-        alert('Intake error: ' + (data.error || 'Please proceed to triage desk'));
+        alert(t.intakeError);
       }
     } catch {
       setIsAnalyzing(false);
-      alert('Network error. Please see the triage desk.');
+      alert(t.networkError);
     }
   };
 
-  // Unknown tickets still get a fresh scan; they just become a new check-in
+  // unknown ticket -> treat as new check-in
   const handleReCheckByTicket = async (ticketInput) => {
     try {
-      const res = await fetch('/api/triage');
+      const res = await fetch(`/api/status/${encodeURIComponent(ticketInput.trim())}`);
       const data = await res.json();
-
-      const input = ticketInput.trim().toUpperCase();
-      const found = data.patients?.find(
-        (p) => p.ticketNumber?.toUpperCase() === input ||
-               p.ticketNumber?.toUpperCase() === `A-${input}` ||
-               p.id?.toUpperCase() === input
-      );
-
-      if (found) {
-        setPatientResult(found);
-        setCheckinMeta({
-          who: found.who || 'self',
-          ageMonths: found.ageMonths,
-          sex: found.sex,
-          pronouns: found.pronouns,
-          vitalsSkipped: false,
-        });
+      if (data.success) {
+        setPatientResult({ id: data.patientId });
+        setCheckinMeta({ vitalsSkipped: false });
       }
     } catch {
-      // fall through to a fresh scan
+      // ignore
     }
     setStep('scan');
   };
@@ -135,17 +124,17 @@ export default function KioskPage() {
     setCheckinMeta({ who: 'self', ageMonths: null, vitalsSkipped: false });
     setPatientResult(null);
     setScannedVitals(null);
-    setHelpBannerText(null);
+    setHelpRequested(false);
   }, []);
 
   const isRtl = selectedLang.code === 'ar';
 
   return (
     <div dir={isRtl ? 'rtl' : 'ltr'} className="min-h-screen bg-white text-black flex flex-col justify-between font-sans transition-all">
-      {helpBannerText && (
+      {helpRequested && (
         <div className="bg-black text-white px-4 py-2 text-xs font-bold text-center flex items-center justify-center gap-2">
-          <span>{helpBannerText}</span>
-          <button onClick={() => setHelpBannerText(null)} className="underline text-white ml-2">Dismiss</button>
+          <span>{t.staffNotified}</span>
+          <button onClick={() => setHelpRequested(false)} className="underline text-white ml-2">{t.dismiss}</button>
         </div>
       )}
 
@@ -160,17 +149,15 @@ export default function KioskPage() {
             </button>
           )}
 
-          <span className="font-extrabold text-xl tracking-tight text-black">
-            Vox<span className="text-blue-600">Vital</span>
-          </span>
+          <Logo size="sm" />
         </div>
 
         <button
           onClick={handleRequestHelp}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black text-xs font-bold transition-colors shadow-2xs"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black text-xs font-bold transition-colors"
         >
           <HelpCircle className="w-4 h-4 text-black" />
-          <span>{TRANSLATIONS[selectedLang.code]?.askStaff || 'Ask staff'}</span>
+          <span>{t.askStaff}</span>
         </button>
       </header>
 
@@ -186,6 +173,7 @@ export default function KioskPage() {
 
         {step === 'scan' && (
           <KioskVitalsScan
+            t={t}
             currentVitals={liveVitals}
             onScanComplete={handleScanComplete}
           />
@@ -193,17 +181,17 @@ export default function KioskPage() {
 
         {step === 'talk' && (
           <KioskVoiceIntake
+            t={t}
             selectedLang={selectedLang}
             scannedVitals={scannedVitals || liveVitals}
             onSubmitIntake={handleSubmitIntake}
             isAnalyzing={isAnalyzing}
-            preferTyping={checkinMeta.preferTyping}
             checkinMeta={checkinMeta}
           />
         )}
 
         {step === 'done' && (
-          <KioskDoneScreen patientData={patientResult} onReset={handleReset} />
+          <KioskDoneScreen t={t} patientData={patientResult} onReset={handleReset} />
         )}
       </main>
 

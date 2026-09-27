@@ -1,7 +1,9 @@
-// In-memory patient store. Kept on globalThis so it survives hot reloads.
+// in-memory store, on globalThis so it survives hot reloads
 import os from 'os';
+import { randomBytes } from 'crypto';
 import QRCode from 'qrcode';
 import { calculateTriage, hasTrueRedFlag, capitalizeName } from './triageEngine';
+import { PHONE_STRINGS } from './phoneStrings';
 
 const patientsMap = (globalThis.__triagePatientsMap ??= new Map());
 const subscribers = (globalThis.__triageSubscribers ??= new Set());
@@ -10,7 +12,7 @@ const helpAlerts = (globalThis.__triageHelpAlerts ??= []);
 const STATUS_ORDER = { waiting: 1, confirmed: 2, called: 3, seen: 4 };
 const DEFAULT_NURSE = 'RN Didi';
 
-// QR codes must be reachable from a phone, so prefer the laptop's LAN address over localhost
+// phones can't reach localhost, use the LAN address
 function publicBase() {
   if (process.env.PUBLIC_BASE) return process.env.PUBLIC_BASE;
   const lan = Object.values(os.networkInterfaces()).flat().find((i) => i?.family === 'IPv4' && !i.internal);
@@ -27,7 +29,7 @@ function snapshot(type, payload) {
   });
 }
 
-export function notifySubscribers(type = 'update', payload = null) {
+function notifySubscribers(type = 'update', payload = null) {
   const data = snapshot(type, payload);
   for (const send of subscribers) {
     try {
@@ -66,8 +68,6 @@ export function dismissStaffHelp(alertId) {
 const isAcuteRedFlag = (p) =>
   !!p.redFlags?.some((f) => /cardiac|chest|stroke|airway/i.test(f));
 
-// Status first, then CTAS level. Within a level, acute red flags and
-// patient-requested rechecks jump ahead, then first come first served.
 export function getAllPatientsSorted() {
   return Array.from(patientsMap.values()).sort((a, b) => {
     const statusDiff = (STATUS_ORDER[a.status] || 1) - (STATUS_ORDER[b.status] || 1);
@@ -86,10 +86,29 @@ export function getAllPatientsSorted() {
   });
 }
 
+export function getPatient(id) {
+  return patientsMap.get(id);
+}
+
+// "A-12", "a12" or "12"
+export function findPatientByTicket(input) {
+  const digits = String(input).toUpperCase().replace(/^A-?/, '');
+  return Array.from(patientsMap.values()).find((p) => p.ticketNumber === `A-${digits}`);
+}
+
 export function calculateQueueRank(patientId) {
   const waiting = getAllPatientsSorted().filter((p) => p.status === 'waiting');
   const index = waiting.findIndex((p) => p.id === patientId);
   return index === -1 ? 0 : index;
+}
+
+function nextTicketNumber() {
+  const taken = new Set(Array.from(patientsMap.values(), (p) => p.ticketNumber));
+  for (let i = 0; i < 50; i++) {
+    const ticket = `A-${Math.floor(10 + Math.random() * 90)}`;
+    if (!taken.has(ticket)) return ticket;
+  }
+  return `A-${100 + patientsMap.size}`;
 }
 
 function isGenericName(name) {
@@ -103,7 +122,7 @@ function isGenericName(name) {
 }
 
 export async function addOrUpdatePatient(data) {
-  const id = data.id || `PAT-${Date.now().toString(36).toUpperCase().slice(-5)}`;
+  const id = data.id || `PAT-${randomBytes(5).toString('hex').toUpperCase()}`;
   const existing = patientsMap.get(id);
 
   const who = data.who || existing?.who || 'self';
@@ -127,7 +146,7 @@ export async function addOrUpdatePatient(data) {
     meta: { ageMonths, age: data.age, vitalsSkipped, recheckRequested },
   });
 
-  const statusUrl = `${publicBase()}/status?id=${id}`;
+  const statusUrl = `${data.publicBase || publicBase()}/status?id=${id}`;
   let qrCodeDataUrl = existing?.qrCodeDataUrl || '';
   try {
     qrCodeDataUrl = await QRCode.toDataURL(statusUrl);
@@ -141,8 +160,8 @@ export async function addOrUpdatePatient(data) {
     redFlags: triage.redFlags,
   });
 
-  const ticketNumber = existing?.ticketNumber || data.ticketNumber || `A-${Math.floor(10 + Math.random() * 89)}`;
-  const name = data.name?.trim();
+  const ticketNumber = existing?.ticketNumber || data.ticketNumber || nextTicketNumber();
+  const name = data.name?.trim() || existing?.name;
 
   let age = data.age;
   if (!age && ageMonths != null) {
@@ -162,6 +181,10 @@ export async function addOrUpdatePatient(data) {
     callVisually: data.callVisually !== undefined ? Boolean(data.callVisually) : (existing?.callVisually ?? false),
     vitalsSkipped,
     recheckRequested,
+    // kiosk rescan clears the nurse's request
+    recheckRequestedByNurse: data.recheckRequestedByNurse ?? false,
+    recheckRequestedAt: data.recheckRequestedByNurse ? existing?.recheckRequestedAt : null,
+    phoneMessage: existing?.phoneMessage ?? null,
     rescanTimestamp: existing ? new Date().toISOString() : null,
     previousPulse: existing?.pulse ?? null,
     language: data.language || 'English',
@@ -191,8 +214,9 @@ export async function addOrUpdatePatient(data) {
       measuredAt: data.vitalsMeasuredAt || existing?.vitals?.measuredAt || (data.timestamp ? new Date(data.timestamp).getTime() : Date.now()),
     },
     vitalsSource: vitalsSkipped ? 'Skipped / Nurse Vitals Required' : (data.vitalsSource || 'Presage Optical Camera SDK'),
-    originalTranscript: transcript,
+    originalTranscript: data.originalTranscript ?? transcript,
     verbatimTranslation: data.verbatimTranslation || existing?.verbatimTranslation || null,
+    followUp: data.followUp || existing?.followUp || null,
     suggestedLevel: triage.suggestedLevel,
     confirmedLevel: existing?.confirmedLevel ?? null,
     confirmedBy: existing?.confirmedBy ?? null,
@@ -207,6 +231,7 @@ export async function addOrUpdatePatient(data) {
       { at: Date.now(), who: 'kiosk', what: `Completed intake (suggested L${triage.suggestedLevel})` },
     ],
     status: existing?.status || 'waiting',
+    calledAt: existing?.calledAt ?? null,
     nurseOverrideLevel: existing?.nurseOverrideLevel ?? null,
     nurseNotes: existing?.nurseNotes || '',
     qrCodeDataUrl,
@@ -254,6 +279,7 @@ export function updateNurseAction(id, {
   overrideReason,
   ackAlert,
   requestRecheck,
+  phoneMessage,
 }) {
   const patient = patientsMap.get(id);
   if (!patient) return null;
@@ -290,7 +316,7 @@ export function updateNurseAction(id, {
     patient.avpu = avpu;
   }
 
-  // Blank form fields mean "not measured", not "clear this value"
+  // blank fields = not measured
   const entered = { bpSystolic, bpDiastolic, temperature, spo2, bloodSugar };
   const hasAnyVitals = [pulse, breathingRate, ...Object.values(entered)].some((v) => !isBlank(v));
 
@@ -331,6 +357,9 @@ export function updateNurseAction(id, {
   if (status !== undefined && status !== patient.status) {
     const prevStatus = patient.status;
     patient.status = status;
+    if (status === 'called') {
+      patient.calledAt = Date.now();
+    }
     if (status === 'seen') {
       patient.recheckRequested = false;
     }
@@ -341,6 +370,11 @@ export function updateNurseAction(id, {
     patient.recheckRequestedByNurse = true;
     patient.recheckRequestedAt = Date.now();
     log(`Re-check requested by ${nurseName}`);
+  }
+
+  if (PHONE_STRINGS.en.messages[phoneMessage]) {
+    patient.phoneMessage = { key: phoneMessage, at: Date.now() };
+    log(`Sent to patient's phone: "${PHONE_STRINGS.en.messages[phoneMessage]}"`);
   }
 
   patient.updatedAt = new Date().toISOString();
@@ -476,7 +510,7 @@ export async function resetStore() {
   return seedDemoPatients();
 }
 
-// Every route bundle imports this module, so only seed once per server process
+// every route bundle imports this, only seed once
 if (!globalThis.__triageSeeded) {
   globalThis.__triageSeeded = true;
   seedDemoPatients();

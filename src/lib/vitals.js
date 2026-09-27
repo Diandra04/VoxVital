@@ -3,7 +3,6 @@ import { EventEmitter } from 'events';
 export const vitalsEmitter = new EventEmitter();
 
 let isStarted = false;
-// The simulator wanders around these; the kiosk demo menu moves them
 let basePulse = 74;
 let baseBreathing = 16;
 let currentReading = {
@@ -31,7 +30,7 @@ export async function startVitals() {
   }
 
   try {
-    // Optional dependency; kept out of the bundle so the app runs without it.
+    // optional dep, keep it out of the bundle
     const sdkName = '@smartspectra/node-sdk';
     const { SmartSpectraSDK, breathingMetrics, cardioMetrics, decodeMetrics } = await import(/* webpackIgnore: true */ sdkName);
 

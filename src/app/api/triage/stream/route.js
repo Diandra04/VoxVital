@@ -3,8 +3,11 @@ import { vitalsEmitter, getLatestVitals, startVitals } from '@/lib/vitals';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req) {
   startVitals();
+
+  // public clients only get a ping, not patient data
+  const isPublic = new URL(req.url).searchParams.get('view') === 'public';
 
   let cleanup = () => {};
 
@@ -17,11 +20,11 @@ export async function GET() {
           const body = typeof data === 'string' ? data : JSON.stringify(data);
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${body}\n\n`));
         } catch {
-          // client already disconnected
+          // closed
         }
       };
 
-      const unsubscribe = subscribeToTriage((json) => send('triage_update', json));
+      const unsubscribe = subscribeToTriage((json) => send('triage_update', isPublic ? '{}' : json));
       const onReading = (reading) => send('vitals', reading);
       vitalsEmitter.on('reading', onReading);
       send('vitals', getLatestVitals());

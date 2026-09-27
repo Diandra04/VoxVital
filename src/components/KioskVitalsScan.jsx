@@ -6,7 +6,7 @@ import { Camera, Heart, Wind, Sliders } from 'lucide-react';
 const SCAN_DURATION_MS = 30000;
 const TICK_MS = 250;
 
-export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
+export default function KioskVitalsScan({ t, onScanComplete, currentVitals }) {
   const [progress, setProgress] = useState(0);
   const [hasCamera, setHasCamera] = useState(false);
   const [showTweakModal, setShowTweakModal] = useState(false);
@@ -38,7 +38,7 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
     };
   }, []);
 
-  // Synthetic pulse waveform, just for the on-screen trace
+  // fake ECG trace for the UI
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -120,7 +120,7 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
         body: JSON.stringify({ pulse: presetPulse, breathing: presetBreathing }),
       });
     } catch {
-      // local values are already set, which is all the scan screen needs
+      // ignore
     }
   };
 
@@ -133,11 +133,11 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
         <div className="flex-1 text-center space-y-1">
           <h2 className="text-2xl md:text-4xl font-black text-black flex items-center justify-center gap-3">
             <Camera className="w-7 h-7 text-blue-600" />
-            <span>Measuring Vitals...</span>
+            <span>{t.measuring}</span>
           </h2>
           <p className="text-zinc-700 text-sm font-medium">
-            Please look at the camera and breathe normally. <br />
-            <span className="text-zinc-500 text-xs font-semibold">No video is recorded. Only pulse & breathing metrics are scanned.</span>
+            {t.lookAtCamera} <br />
+            <span className="text-zinc-500 text-xs font-semibold">{t.noVideo}</span>
           </p>
         </div>
 
@@ -168,7 +168,7 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
             />
           </svg>
 
-          <div className="absolute inset-4 rounded-full overflow-hidden bg-white border-4 border-blue-600 flex items-center justify-center shadow">
+          <div className="absolute inset-4 rounded-full overflow-hidden bg-white border-4 border-blue-600 flex items-center justify-center">
             <video
               ref={videoRef}
               autoPlay
@@ -192,12 +192,12 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
         </div>
       </div>
 
-      <div className="w-full max-w-md bg-white border-2 border-red-600 rounded-xl p-4 space-y-3 shadow-xs text-left">
+      <div className="w-full max-w-md bg-white border-2 border-red-600 rounded-xl p-4 space-y-3 text-start">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Heart className="w-7 h-7 text-red-600 shrink-0" />
             <div>
-              <span className="text-xs text-zinc-600 font-bold uppercase block leading-tight">Your pulse</span>
+              <span className="text-xs text-zinc-600 font-bold uppercase block leading-tight">{t.yourPulse}</span>
               <span className="text-2xl font-black text-red-600 leading-none">
                 {currentPulseDisplay} <span className="text-xs text-zinc-600 font-bold">bpm</span>
               </span>
@@ -207,9 +207,9 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
           <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg">
             <Wind className="w-4 h-4 text-blue-600 shrink-0" />
             <div>
-              <span className="text-[10px] text-zinc-500 font-bold uppercase block leading-none">Breathing</span>
+              <span className="text-[10px] text-zinc-500 font-bold uppercase block leading-none">{t.breathing}</span>
               <span className="text-sm font-black text-blue-600 leading-none">
-                {currentBreathingDisplay} <span className="text-[10px] text-zinc-600 font-normal">breaths/min</span>
+                {currentBreathingDisplay} <span className="text-[10px] text-zinc-600 font-normal">{t.breathsPerMin}</span>
               </span>
             </div>
           </div>
@@ -220,7 +220,7 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
 
       {showTweakModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-400 rounded-xl p-6 max-w-sm w-full space-y-4 text-left shadow-2xl">
+          <div className="bg-white border border-zinc-400 rounded-xl p-6 max-w-sm w-full space-y-4 text-start">
             <h3 className="text-base font-black text-black flex items-center justify-between">
               <span>Demo Options</span>
               <button onClick={() => setShowTweakModal(false)} className="text-zinc-600 hover:text-black">✕</button>
@@ -229,21 +229,21 @@ export default function KioskVitalsScan({ onScanComplete, currentVitals }) {
             <div className="space-y-2 text-xs">
               <button
                 onClick={() => { setProgress(100); setShowTweakModal(false); }}
-                className="w-full p-3 rounded bg-black text-white hover:bg-zinc-800 text-left font-bold"
+                className="w-full p-3 rounded bg-black text-white hover:bg-zinc-800 text-start font-bold"
               >
                 <span>Skip Scan (Instant Demo)</span>
               </button>
 
               <button
                 onClick={() => { applyPreset(74, 16); setShowTweakModal(false); }}
-                className="w-full p-3 rounded bg-zinc-100 border border-zinc-300 text-left text-black hover:bg-zinc-200 font-bold"
+                className="w-full p-3 rounded bg-zinc-100 border border-zinc-300 text-start text-black hover:bg-zinc-200 font-bold"
               >
                 <div>Normal Vitals (74 bpm / 16 breaths/min)</div>
               </button>
 
               <button
                 onClick={() => { applyPreset(108, 26); setShowTweakModal(false); }}
-                className="w-full p-3 rounded bg-zinc-100 border border-zinc-300 text-left text-black hover:bg-zinc-200 font-bold"
+                className="w-full p-3 rounded bg-zinc-100 border border-zinc-300 text-start text-black hover:bg-zinc-200 font-bold"
               >
                 <div>Tachycardia (108 bpm / 26 breaths/min)</div>
               </button>

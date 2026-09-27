@@ -5,13 +5,15 @@ import {
   X,
   Globe,
   CheckCircle2,
-  Volume2,
+  Smartphone,
+  RefreshCw,
   UserCheck,
   Check,
   AlertCircle,
   Pill,
 } from 'lucide-react';
 import { CTAS_LEVELS, getPaediatricVitalsReferenceRange, capitalizeName } from '@/lib/triageEngine';
+import { PHONE_STRINGS, phoneStrings } from '@/lib/phoneStrings';
 
 export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAction }) {
   const [selectedLevel, setSelectedLevel] = useState(patient?.confirmedLevel || patient?.nurseOverrideLevel || patient?.suggestedLevel || 3);
@@ -27,9 +29,9 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
   const [manualBloodSugar, setManualBloodSugar] = useState(patient?.bloodSugar ?? '');
 
   const [isSaving, setIsSaving] = useState(false);
-  const [broadcastingText, setBroadcastingText] = useState(null);
   const [noteError, setNoteError] = useState(false);
   const [vitalsSavedMsg, setVitalsSavedMsg] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(null);
 
   if (!patient) return null;
 
@@ -135,50 +137,10 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
     }
   };
 
-  const announcements = [
-    {
-      en: 'Please come to the desk.',
-      fr: 'Veuillez vous présenter au comptoir.',
-      sub: 'Please come to the desk.',
-    },
-    {
-      en: 'A nurse will call you soon.',
-      fr: 'Nous allons vous appeler bientôt.',
-      sub: 'We will call you soon.',
-    }
-  ];
-
-  const handleBroadcastPhrase = async (phraseObj) => {
-    const textToSpeak = phraseObj[patient.languageCode] || phraseObj.en;
-    setBroadcastingText(textToSpeak);
-
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: textToSpeak,
-          langCode: patient.languageCode || 'en',
-        }),
-      });
-
-      if (res.ok && res.headers.get('Content-Type')?.includes('audio')) {
-        const blob = await res.blob();
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.onended = () => setBroadcastingText(null);
-        await audio.play();
-      } else if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.lang = patient.languageCode || 'en';
-        utterance.onend = () => setBroadcastingText(null);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setBroadcastingText(null);
-      }
-    } catch {
-      setBroadcastingText(null);
-    }
+  const handleSendToPhone = async (key) => {
+    setSendingMessage(key);
+    await onUpdateNurseAction(patient.id, { phoneMessage: key });
+    setSendingMessage(null);
   };
 
   const formatHHMM = (ts) =>
@@ -196,7 +158,6 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
   const checkinTime = formatHHMM(patient.timestamp);
   const originalSpeech = patient.originalTranscript || patient.chiefComplaint;
 
-  // Non-English patients: show the English summary under their own words
   const englishTranslation = patient.verbatimTranslation || (
     patient.language !== 'English' && patient.chiefComplaint !== originalSpeech ? patient.chiefComplaint : null
   );
@@ -220,7 +181,9 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
   historyEntries.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
 
   const vitalsTimeStr = formatHHMM(patient.vitals?.measuredAt || patient.timestamp);
-  const vitalsSourceStr = patient.vitals?.source === 'nurse' ? 'Nurse' : 'Camera';
+  const vitalsSourceStr = patient.vitals?.source === 'nurse'
+    ? 'Nurse'
+    : patient.vitalsSource?.includes('Simulated') ? 'Camera (simulated)' : 'Camera';
 
   const NO_ANSWER = ['None reported', 'Skipped', 'Not answered', 'None', 'No'];
   const hasAllergies = !!patient.allergies && !NO_ANSWER.includes(patient.allergies);
@@ -229,7 +192,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex justify-end font-sans">
-      <div className="w-full max-w-2xl bg-white border-l border-zinc-300 h-full overflow-y-auto p-6 space-y-6 text-left text-black shadow-2xl flex flex-col justify-between">
+      <div className="w-full max-w-2xl bg-white border-l border-zinc-300 h-full overflow-y-auto p-6 space-y-6 text-left text-black flex flex-col justify-between">
         <div className="space-y-6">
           <div className="flex items-center justify-between border-b border-zinc-200 pb-4">
             <div>
@@ -295,14 +258,14 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
             </div>
           )}
 
-          <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between shadow-2xs">
+          <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between">
             <div>
               <span className="text-xs text-zinc-500 font-bold block">Suggested level</span>
               <span className="text-lg font-bold text-black">
                 Level {patient.suggestedLevel}: {CTAS_LEVELS[patient.suggestedLevel]}
               </span>
             </div>
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm shadow-2xs ${circleClass}`}>
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm ${circleClass}`}>
               {patient.suggestedLevel}
             </div>
           </div>
@@ -314,7 +277,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
             
             <div className="space-y-2">
               {reasonsList.map((r, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-3 bg-white p-3 rounded-lg border border-zinc-200 shadow-2xs">
+                <div key={idx} className="flex items-center justify-between gap-3 bg-white p-3 rounded-lg border border-zinc-200">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="w-2 h-2 rounded-full bg-zinc-900 shrink-0" />
                     <span className="text-xs font-semibold text-zinc-800 leading-snug">{r.text}</span>
@@ -342,11 +305,19 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
                 <span className="text-[11px] text-zinc-500 block font-semibold">Patient&apos;s words:</span>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {patient.symptoms.map((s, i) => (
-                    <span key={i} className="px-2.5 py-1 rounded bg-white text-black text-xs font-bold border border-zinc-300 shadow-2xs">
+                    <span key={i} className="px-2.5 py-1 rounded bg-white text-black text-xs font-bold border border-zinc-300">
                       {s}
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {patient.followUp && (
+              <div className="space-y-1 pt-2 border-t border-zinc-200 text-xs">
+                <span className="text-[11px] text-zinc-500 block font-semibold">Kiosk asked (spoken in {patient.language}):</span>
+                <p className="font-bold text-zinc-900">{patient.followUp.questionEnglish}</p>
+                <p className="text-zinc-800 font-medium">&quot;{patient.followUp.answer}&quot;</p>
               </div>
             )}
 
@@ -402,6 +373,23 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               <h3 className="text-sm font-bold text-zinc-900">
                 Vitals
               </h3>
+              {patient.status !== 'seen' && (
+                patient.recheckRequestedByNurse ? (
+                  <span className="text-xs font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Re-check requested {formatHHMM(patient.recheckRequestedAt)} · on their phone
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onUpdateNurseAction(patient.id, { requestRecheck: true })}
+                    className="text-xs font-bold text-amber-900 bg-white hover:bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Request re-check
+                  </button>
+                )
+              )}
             </div>
 
             {isNoScan ? (
@@ -433,7 +421,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               </div>
             )}
 
-            <form id="nurse-vitals-form" onSubmit={handleSaveVitals} className={`space-y-4 bg-white p-4 rounded-xl border transition-all ${patient.vitalsSkipped ? 'border-amber-400 ring-2 ring-amber-100' : 'border-zinc-200'}`}>
+            <form id="nurse-vitals-form" onSubmit={handleSaveVitals} className={`space-y-4 bg-white p-4 rounded-xl border transition-all ${patient.vitalsSkipped ? 'border-amber-400' : 'border-zinc-200'}`}>
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-zinc-900">
                   Add nurse vitals
@@ -468,7 +456,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
                       onClick={() => setManualAvpu(item.id)}
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all border ${
                         manualAvpu === item.id
-                          ? 'bg-black text-white border-black shadow-2xs'
+                          ? 'bg-black text-white border-black'
                           : 'bg-zinc-50 text-zinc-700 border-zinc-300 hover:bg-zinc-100'
                       }`}
                     >
@@ -574,7 +562,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="py-1.5 px-3.5 rounded-lg bg-zinc-900 text-white font-bold text-xs hover:bg-black transition-colors shrink-0 shadow-2xs"
+                  className="py-1.5 px-3.5 rounded-lg bg-zinc-900 text-white font-bold text-xs hover:bg-black transition-colors shrink-0"
                 >
                   Save nurse vitals
                 </button>
@@ -584,24 +572,39 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
 
           <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-2">
             <h3 className="text-sm font-bold text-zinc-900">
-              Speak to patient in {patient.language}
+              Message patient&apos;s phone
             </h3>
+            <p className="text-[11px] text-zinc-500 font-medium">
+              Shows on their status page in {patient.language} and is read aloud if they turned on alerts.
+            </p>
 
             <div className="space-y-2 pt-1">
-              {announcements.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleBroadcastPhrase(item)}
-                  disabled={!!broadcastingText}
-                  className="w-full p-2.5 rounded-lg bg-white hover:bg-zinc-100 border border-zinc-200 text-left text-xs font-medium transition-colors flex items-center justify-between group"
-                >
-                  <div>
-                    <span className="font-bold block text-zinc-900">{item[patient.languageCode] || item.en}</span>
-                    <span className="text-[11px] text-zinc-500">&quot;{item.sub}&quot;</span>
-                  </div>
-                  <Volume2 className="w-4 h-4 shrink-0 text-zinc-500 group-hover:text-black" />
-                </button>
-              ))}
+              {Object.entries(PHONE_STRINGS.en.messages).map(([key, english]) => {
+                const wasSent = patient.phoneMessage?.key === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => handleSendToPhone(key)}
+                    disabled={!!sendingMessage}
+                    className="w-full p-2.5 rounded-lg bg-white hover:bg-zinc-100 border border-zinc-200 text-left text-xs font-medium transition-colors flex items-center justify-between gap-3 group"
+                  >
+                    <div>
+                      <span className="font-bold block text-zinc-900">{english}</span>
+                      {patient.languageCode !== 'en' && (
+                        <span className="text-[11px] text-zinc-500">{phoneStrings(patient.languageCode).messages[key]}</span>
+                      )}
+                    </div>
+                    <span className="flex items-center gap-1.5 shrink-0 text-[11px] font-bold text-zinc-500 group-hover:text-black">
+                      {wasSent && (
+                        <span className="text-emerald-700 flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" /> Sent {formatHHMM(patient.phoneMessage.at)}
+                        </span>
+                      )}
+                      <Smartphone className="w-4 h-4" />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -623,7 +626,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
                   }}
                   className={`py-2 rounded-xl font-bold text-xs transition-all border ${
                     selectedLevel === lvl
-                      ? 'bg-black text-white border-black font-extrabold shadow-2xs'
+                      ? 'bg-black text-white border-black font-extrabold'
                       : 'bg-zinc-100 text-zinc-700 border-zinc-300 hover:bg-zinc-200'
                   }`}
                 >
@@ -667,7 +670,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
                   ? 'Required: Document clinical rationale for lowering triage priority...'
                   : 'Notes (optional)'
               }
-              className={`w-full bg-white text-black text-xs p-3 rounded-xl border focus:outline-none min-h-[55px] font-medium shadow-2xs ${
+              className={`w-full bg-white text-black text-xs p-3 rounded-xl border focus:outline-none min-h-[55px] font-medium ${
                 noteError
                   ? 'border-amber-500 bg-amber-50/50 focus:border-amber-600'
                   : 'border-zinc-300 focus:border-zinc-800'
@@ -685,7 +688,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               <button
                 onClick={() => handleSaveNurseAction('confirmed')}
                 disabled={isSaving || isNoteRequired}
-                className={`w-full py-3 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs ${
+                className={`w-full py-3 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
                   isNoteRequired
                     ? 'bg-zinc-300 text-zinc-600 cursor-not-allowed border border-zinc-300'
                     : 'bg-black text-white hover:bg-zinc-800'
@@ -700,7 +703,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               <button
                 onClick={() => handleSaveNurseAction('called')}
                 disabled={isSaving || isNoteRequired}
-                className="w-full py-3 px-3 rounded-xl bg-black text-white font-bold text-xs hover:bg-zinc-800 transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                className="w-full py-3 px-3 rounded-xl bg-black text-white font-bold text-xs hover:bg-zinc-800 transition-all flex items-center justify-center gap-1.5"
               >
                 <UserCheck className="w-4 h-4" />
                 <span>Call patient</span>
@@ -711,7 +714,7 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               <button
                 onClick={() => handleSaveNurseAction('seen')}
                 disabled={isSaving}
-                className="w-full py-3 px-3 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                className="w-full py-3 px-3 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all flex items-center justify-center gap-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Mark seen</span>

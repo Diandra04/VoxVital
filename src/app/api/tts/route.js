@@ -1,18 +1,25 @@
 import { NextResponse } from 'next/server';
 import { generateSpeechBuffer } from '@/lib/elevenlabs';
+import { rateLimit } from '@/lib/http';
 
 export async function POST(req) {
+  const limited = rateLimit(req, 'tts', 60);
+  if (limited) return limited;
+
   try {
-    const { text, langCode = 'en' } = await req.json();
+    const { text } = await req.json();
 
     if (!text) {
       return NextResponse.json({ success: false, error: 'Text parameter required' }, { status: 400 });
     }
+    if (text.length > 400) {
+      return NextResponse.json({ success: false, error: 'Text too long' }, { status: 400 });
+    }
 
-    const audioBuffer = await generateSpeechBuffer(text, langCode);
+    const audioBuffer = await generateSpeechBuffer(text);
 
     if (!audioBuffer) {
-      // No ElevenLabs key or synthesis failed; the client falls back to Web Speech
+      // client falls back to speechSynthesis
       return NextResponse.json({ success: false, fallback: true });
     }
 

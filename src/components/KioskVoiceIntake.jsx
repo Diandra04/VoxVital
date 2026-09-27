@@ -1,17 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, ArrowRight, ArrowLeft, Keyboard } from 'lucide-react';
-
-const SPEECH_LOCALES = {
-  en: 'en-US',
-  fr: 'fr-FR',
-  es: 'es-ES',
-  ar: 'ar-SA',
-  pa: 'pa-IN',
-  zh: 'zh-CN',
-  ru: 'ru-RU',
-};
+import { Mic, MicOff, ArrowRight, ArrowLeft, Keyboard, Volume2, RotateCcw } from 'lucide-react';
+import { SPEECH_LOCALES, speak } from '@/lib/speech';
 
 const detectOnsetFromTranscript = (text) => {
   if (!text) return null;
@@ -32,14 +23,21 @@ const detectOnsetFromTranscript = (text) => {
   return null;
 };
 
-export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmitIntake, isAnalyzing, preferTyping = false, checkinMeta = {} }) {
+export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSubmitIntake, isAnalyzing, checkinMeta = {} }) {
+  const answerLabels = { No: t.no, Yes: t.yes, 'Not sure': t.notSure, 'Prefer not to say': t.preferNot };
+
   const [subStep, setSubStep] = useState('symptoms');
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [painScore, setPainScore] = useState(5);
-  const [showTextInput, setShowTextInput] = useState(preferTyping);
 
-  // Nothing is pre-selected so a skipped question is recorded as skipped
+  const [followUp, setFollowUp] = useState(null);
+  const [followUpFor, setFollowUpFor] = useState('');
+  const [followUpAnswer, setFollowUpAnswer] = useState('');
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [painScore, setPainScore] = useState(5);
+  const [showTextInput, setShowTextInput] = useState(!!checkinMeta.needsInterpreter);
+
   const [hasAllergy, setHasAllergy] = useState(null);
   const [allergyDetails, setAllergyDetails] = useState('');
   const [takeMeds, setTakeMeds] = useState(null);
@@ -49,6 +47,9 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
   const [pregnantChoice, setPregnantChoice] = useState(null);
 
   const recognitionRef = useRef(null);
+  // refs so async callbacks see current values
+  const listenTarget = useRef('symptoms');
+  const subStepRef = useRef('symptoms');
 
   const ageMonths = checkinMeta?.ageMonths ?? 540;
   const sex = checkinMeta?.sex || 'M';
@@ -65,7 +66,8 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
 
     recognition.onresult = (event) => {
       const text = Array.from(event.results, (r) => r[0].transcript).join('');
-      setTranscript(text);
+      if (listenTarget.current === 'followup') setFollowUpAnswer(text);
+      else setTranscript(text);
     };
     recognition.onend = () => setIsRecording(false);
 
@@ -73,19 +75,52 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
     return () => recognition.abort();
   }, [selectedLang]);
 
-  const toggleRecording = () => {
-    const recognition = recognitionRef.current;
-    try {
-      if (isRecording) recognition?.stop();
-      else recognition?.start();
-    } catch {
-      // start() throws if a session is already running
-    }
-    setIsRecording(!isRecording);
+  const goTo = (step) => {
+    subStepRef.current = step;
+    setSubStep(step);
   };
 
-  const handleNextToQuestions = () => {
+  const stopListening = () => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    setIsRecording(false);
+  };
+
+  const startListening = (target) => {
+    // no SpeechRecognition (Firefox etc.)
+    if (!recognitionRef.current) {
+      setShowTextInput(true);
+      return;
+    }
+    listenTarget.current = target;
+    try {
+      recognitionRef.current.start();
+    } catch {
+      // already started
+    }
+    setIsRecording(true);
+  };
+
+  const toggleRecording = (target) => {
+    if (isRecording) stopListening();
+    else startListening(target);
+  };
+
+  const askFollowUp = async (question) => {
+    stopListening();
+    setIsSpeaking(true);
+    await speak(question.question, selectedLang.code);
+    setIsSpeaking(false);
+    if (subStepRef.current === 'followup') startListening('followup');
+  };
+
+  const handleNextFromSymptoms = async () => {
     if (!transcript.trim()) return;
+    stopListening();
+
     const detected = detectOnsetFromTranscript(transcript);
     if (detected) {
       setDetectedOnsetFromWords(detected);
@@ -93,7 +128,39 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
         setOnsetChoice(detected);
       }
     }
-    setSubStep('questions');
+
+    goTo('followup');
+    if (followUp && followUpFor === transcript) return;
+
+    setFollowUp(null);
+    setFollowUpAnswer('');
+    setFollowUpLoading(true);
+    try {
+      const res = await fetch('/api/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, languageCode: selectedLang.code }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      const question = { question: data.question, questionEnglish: data.questionEnglish };
+      setFollowUp(question);
+      setFollowUpFor(transcript);
+      setFollowUpLoading(false);
+      askFollowUp(question);
+    } catch {
+      // skip the follow-up
+      setFollowUpLoading(false);
+      goTo('questions');
+    }
+  };
+
+  const handleLeaveFollowUp = (keepAnswer) => {
+    stopListening();
+    window.speechSynthesis?.cancel();
+    if (!keepAnswer) setFollowUpAnswer('');
+    goTo('questions');
   };
 
   const handleSubmit = () => {
@@ -127,34 +194,37 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
       medications: computedMeds,
       onset: computedOnset,
       isPregnant: computedPregnant,
+      followUp: followUp && followUpAnswer.trim()
+        ? { ...followUp, answer: followUpAnswer.trim() }
+        : null,
     });
   };
 
   return (
     <div className="flex flex-col items-center justify-between min-h-[calc(100vh-8rem)] p-4 max-w-3xl mx-auto w-full text-center bg-white text-black font-sans space-y-6">
-      {subStep === 'symptoms' ? (
+      {subStep === 'symptoms' && (
         <>
           <div className="space-y-3 pt-2">
             <h2 className="text-3xl md:text-5xl font-black text-black tracking-tight">
-              Describe Your Symptoms
+              {t.describeTitle}
             </h2>
 
             <p className="text-zinc-700 text-base md:text-lg max-w-xl mx-auto font-medium">
-              Press the button below and speak naturally in your language.
+              {t.describeSub}
             </p>
           </div>
 
           <div className="w-full max-w-md space-y-5">
             <div className="flex flex-col items-center justify-center space-y-3">
               <button
-                onClick={toggleRecording}
+                onClick={() => toggleRecording('symptoms')}
                 disabled={isAnalyzing}
-                className={`p-8 rounded-full transition-all flex items-center justify-center border-4 shadow-lg ${
+                className={`p-8 rounded-full transition-all flex items-center justify-center border-4 ${
                   isRecording
-                    ? 'bg-red-600 border-red-700 text-white scale-110 ring-8 ring-red-200 animate-pulse'
+                    ? 'bg-red-600 border-red-700 text-white scale-110 animate-pulse'
                     : 'bg-black text-white border-black hover:bg-zinc-800'
                 }`}
-                aria-label={isRecording ? 'Stop listening' : 'Start microphone'}
+                aria-label={isRecording ? t.listening : t.tapToSpeak}
               >
                 {isRecording ? (
                   <Mic className="w-14 h-14 text-white animate-pulse" />
@@ -164,27 +234,27 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
               </button>
 
               <span className="text-base font-bold text-black">
-                {isRecording ? 'Listening... Speak now (tap to stop)' : 'Tap Microphone to Speak'}
+                {isRecording ? t.listening : t.tapToSpeak}
               </span>
             </div>
 
-            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 text-left space-y-2 shadow-2xs">
+            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 text-start space-y-2">
               <div className="flex items-center justify-between text-xs text-zinc-600 font-bold tracking-wider">
-                <span>What you said</span>
+                <span>{t.whatYouSaid}</span>
                 <button
                   onClick={() => setShowTextInput(!showTextInput)}
                   className="text-black hover:underline flex items-center gap-1 font-extrabold"
                 >
                   <Keyboard className="w-3.5 h-3.5" />
-                  {showTextInput ? 'Hide Text Box' : 'Type instead'}
+                  {showTextInput ? t.hideTextBox : t.typeInstead}
                 </button>
               </div>
 
               {!showTextInput ? (
-                <div className="min-h-[70px] text-black text-base font-medium p-3 bg-white rounded-xl border border-zinc-200 shadow-2xs">
+                <div className="min-h-[70px] text-black text-base font-medium p-3 bg-white rounded-xl border border-zinc-200">
                   {transcript || (
                     <span className="text-zinc-400 italic font-normal">
-                      {isRecording ? 'Listening to your voice...' : 'Your spoken words will appear here...'}
+                      {isRecording ? t.listeningPlaceholder : t.spokenPlaceholder}
                     </span>
                   )}
                 </div>
@@ -192,15 +262,15 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
                 <textarea
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
-                  placeholder="Type your symptoms here..."
-                  className="w-full min-h-[80px] bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black text-sm font-medium shadow-2xs"
+                  placeholder={t.typeSymptoms}
+                  className="w-full min-h-[80px] bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black text-sm font-medium"
                 />
               )}
             </div>
 
-            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3 shadow-2xs">
+            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3">
               <div className="flex justify-between items-center text-sm font-extrabold text-black">
-                <span>How bad is the pain?</span>
+                <span>{t.painQuestion}</span>
                 <span className="text-black text-lg font-black">{painScore} / 10</span>
               </div>
 
@@ -214,7 +284,7 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
                       onClick={() => setPainScore(num)}
                       className={`flex-1 py-2 rounded-lg font-bold text-xs md:text-sm transition-all ${
                         isSelected
-                          ? 'bg-black text-white border border-black font-extrabold scale-105 shadow-xs'
+                          ? 'bg-black text-white border border-black font-extrabold scale-105'
                           : 'bg-white text-zinc-700 border border-zinc-300 hover:bg-zinc-100'
                       }`}
                     >
@@ -225,59 +295,169 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
               </div>
 
               <div className="flex justify-between items-center text-[11px] font-bold text-zinc-500 pt-0.5 px-0.5">
-                <span>0 - No pain</span>
-                <span>10 - Worst pain</span>
+                <span>{t.noPain}</span>
+                <span>{t.worstPain}</span>
               </div>
             </div>
 
             <button
-              onClick={handleNextToQuestions}
+              onClick={handleNextFromSymptoms}
               disabled={!transcript.trim() || isAnalyzing}
-              className="w-full py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40 shadow-md"
+              className="w-full py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40"
             >
-              <span>Next</span>
-              <ArrowRight className="w-6 h-6" />
+              <span>{t.next}</span>
+              <ArrowRight className="w-6 h-6 rtl:rotate-180" />
             </button>
           </div>
         </>
-      ) : (
+      )}
+
+      {subStep === 'followup' && (
         <>
-          <div className="w-full max-w-md space-y-3 pt-2 text-left">
+          <div className="w-full max-w-md space-y-3 pt-2 text-start">
             <button
               type="button"
-              onClick={() => setSubStep('symptoms')}
+              onClick={() => {
+                stopListening();
+                goTo('symptoms');
+              }}
               className="inline-flex items-center gap-1.5 text-sm font-bold text-zinc-600 hover:text-black transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to symptoms</span>
+              <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+              <span>{t.backToSymptoms}</span>
             </button>
 
             <h2 className="text-3xl md:text-4xl font-black text-black tracking-tight">
-              A few quick questions
+              {t.oneMoreQuestion}
+            </h2>
+          </div>
+
+          {followUpLoading || !followUp ? (
+            <div className="flex flex-col items-center gap-3 py-12">
+              <div className="w-10 h-10 border-4 border-black border-t-transparent rounded-full animate-spin" />
+              <span className="text-base font-bold text-zinc-700">{t.preparingQuestion}</span>
+            </div>
+          ) : (
+            <div className="w-full max-w-md space-y-5">
+              <div className="bg-blue-50 border-2 border-blue-600 rounded-2xl p-5 text-start space-y-3">
+                <div className="flex items-start gap-3">
+                  <Volume2 className={`w-7 h-7 text-blue-600 shrink-0 mt-1 ${isSpeaking ? 'animate-pulse' : ''}`} />
+                  <p className="text-xl md:text-2xl font-black text-black leading-snug">{followUp.question}</p>
+                </div>
+                {selectedLang.code !== 'en' && (
+                  <p className="text-xs font-medium text-zinc-600 ps-10">{followUp.questionEnglish}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => askFollowUp(followUp)}
+                  disabled={isSpeaking}
+                  className="ms-10 inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:underline disabled:opacity-40"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{t.hearAgain}</span>
+                </button>
+              </div>
+
+              <div className="flex flex-col items-center justify-center space-y-3">
+                <button
+                  onClick={() => toggleRecording('followup')}
+                  disabled={isSpeaking}
+                  className={`p-6 rounded-full transition-all flex items-center justify-center border-4 disabled:opacity-40 ${
+                    isRecording
+                      ? 'bg-red-600 border-red-700 text-white scale-110 animate-pulse'
+                      : 'bg-black text-white border-black hover:bg-zinc-800'
+                  }`}
+                  aria-label={isRecording ? t.listening : t.tapToSpeak}
+                >
+                  {isRecording ? <Mic className="w-10 h-10" /> : <MicOff className="w-10 h-10 opacity-85" />}
+                </button>
+                <span className="text-base font-bold text-black">
+                  {isSpeaking ? t.listenToQuestion : isRecording ? t.listening : t.tapToAnswer}
+                </span>
+              </div>
+
+              <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 text-start space-y-2">
+                <div className="flex items-center justify-between text-xs text-zinc-600 font-bold tracking-wider">
+                  <span>{t.yourAnswer}</span>
+                  <button
+                    onClick={() => setShowTextInput(!showTextInput)}
+                    className="text-black hover:underline flex items-center gap-1 font-extrabold"
+                  >
+                    <Keyboard className="w-3.5 h-3.5" />
+                    {showTextInput ? t.hideTextBox : t.typeInstead}
+                  </button>
+                </div>
+                {!showTextInput ? (
+                  <div className="min-h-[60px] text-black text-base font-medium p-3 bg-white rounded-xl border border-zinc-200">
+                    {followUpAnswer || (
+                      <span className="text-zinc-400 italic font-normal">{t.answerPlaceholder}</span>
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    value={followUpAnswer}
+                    onChange={(e) => setFollowUpAnswer(e.target.value)}
+                    placeholder={t.typeAnswer}
+                    className="w-full min-h-[70px] bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black text-sm font-medium"
+                  />
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => handleLeaveFollowUp(false)}
+                  className="py-4 px-5 rounded-xl bg-zinc-200 border border-zinc-300 text-black text-base font-bold hover:bg-zinc-300 transition-colors"
+                >
+                  {t.skip}
+                </button>
+                <button
+                  onClick={() => handleLeaveFollowUp(true)}
+                  disabled={!followUpAnswer.trim()}
+                  className="flex-1 py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40"
+                >
+                  <span>{t.next}</span>
+                  <ArrowRight className="w-6 h-6 rtl:rotate-180" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {subStep === 'questions' && (
+        <>
+          <div className="w-full max-w-md space-y-3 pt-2 text-start">
+            <button
+              type="button"
+              onClick={() => goTo('symptoms')}
+              className="inline-flex items-center gap-1.5 text-sm font-bold text-zinc-600 hover:text-black transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+              <span>{t.backToSymptoms}</span>
+            </button>
+
+            <h2 className="text-3xl md:text-4xl font-black text-black tracking-tight">
+              {t.quickTitle}
             </h2>
             <p className="text-zinc-600 text-sm font-medium">
-              Help us prioritize your care. You can skip any question if unsure.
+              {t.quickSub}
             </p>
           </div>
 
-          <div className="w-full max-w-md space-y-4 text-left">
-            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3 shadow-2xs">
+          <div className="w-full max-w-md space-y-4 text-start">
+            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3">
               <label className="font-bold text-sm text-zinc-900 block">
-                Are you allergic to any medicines?
+                {t.allergyQ}
               </label>
               <div className="flex items-center gap-2">
-                {[
-                  { label: 'No', val: 'No' },
-                  { label: 'Yes', val: 'Yes' },
-                  { label: 'Not sure', val: 'Not sure' },
-                ].map((opt) => (
+                {['No', 'Yes', 'Not sure'].map((val) => ({ val, label: answerLabels[val] })).map((opt) => (
                   <button
                     key={opt.val}
                     type="button"
                     onClick={() => setHasAllergy(opt.val)}
                     className={`flex-1 py-2 px-3 rounded-xl border text-sm font-bold transition-all ${
                       hasAllergy === opt.val
-                        ? 'bg-black text-white border-black shadow-2xs'
+                        ? 'bg-black text-white border-black'
                         : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-100'
                     }`}
                   >
@@ -288,34 +468,31 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
 
               {hasAllergy === 'Yes' && (
                 <div className="pt-1">
-                  <label className="text-xs font-bold text-zinc-600 block mb-1">Which one?</label>
+                  <label className="text-xs font-bold text-zinc-600 block mb-1">{t.whichOne}</label>
                   <input
                     type="text"
-                    placeholder="e.g. Penicillin"
+                    placeholder={t.allergyExample}
                     value={allergyDetails}
                     onChange={(e) => setAllergyDetails(e.target.value)}
-                    className="w-full bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black font-medium text-sm shadow-2xs"
+                    className="w-full bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black font-medium text-sm"
                   />
                 </div>
               )}
             </div>
 
-            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3 shadow-2xs">
+            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3">
               <label className="font-bold text-sm text-zinc-900 block">
-                Do you take any medicines?
+                {t.medsQ}
               </label>
               <div className="flex items-center gap-2">
-                {[
-                  { label: 'No', val: 'No' },
-                  { label: 'Yes', val: 'Yes' },
-                ].map((opt) => (
+                {['No', 'Yes'].map((val) => ({ val, label: answerLabels[val] })).map((opt) => (
                   <button
                     key={opt.val}
                     type="button"
                     onClick={() => setTakeMeds(opt.val)}
                     className={`flex-1 py-2 px-3 rounded-xl border text-sm font-bold transition-all ${
                       takeMeds === opt.val
-                        ? 'bg-black text-white border-black shadow-2xs'
+                        ? 'bg-black text-white border-black'
                         : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-100'
                     }`}
                   >
@@ -328,23 +505,23 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
                 <div className="pt-1">
                   <input
                     type="text"
-                    placeholder="e.g. aspirin, insulin"
+                    placeholder={t.medsExample}
                     value={medicationsText}
                     onChange={(e) => setMedicationsText(e.target.value)}
-                    className="w-full bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black font-medium text-sm shadow-2xs"
+                    className="w-full bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black font-medium text-sm"
                   />
                 </div>
               )}
             </div>
 
-            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3 shadow-2xs">
+            <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3">
               <div className="space-y-1">
                 <label className="font-bold text-sm text-zinc-900 block">
-                  When did this start?
+                  {t.onsetQ}
                 </label>
                 {detectedOnsetFromWords && (
                   <span className="text-xs text-zinc-500 font-medium block">
-                    Detected from your description: <span className="font-bold text-zinc-800">{detectedOnsetFromWords}</span>
+                    {t.detected} <span className="font-bold text-zinc-800">{t.onset[detectedOnsetFromWords]}</span>
                   </span>
                 )}
               </div>
@@ -357,20 +534,20 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
                     onClick={() => setOnsetChoice(opt)}
                     className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-bold transition-all text-center ${
                       onsetChoice === opt
-                        ? 'bg-black text-white border-black shadow-2xs'
+                        ? 'bg-black text-white border-black'
                         : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-100'
                     }`}
                   >
-                    {opt}
+                    {t.onset[opt]}
                   </button>
                 ))}
               </div>
             </div>
 
             {canAskPregnancy && (
-              <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3 shadow-2xs">
+              <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 space-y-3">
                 <label className="font-bold text-sm text-zinc-900 block">
-                  Could you be pregnant?
+                  {t.pregnantQ}
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {['No', 'Yes', 'Not sure', 'Prefer not to say'].map((opt) => (
@@ -380,11 +557,11 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
                       onClick={() => setPregnantChoice(opt)}
                       className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-bold transition-all text-center ${
                         pregnantChoice === opt
-                          ? 'bg-black text-white border-black shadow-2xs'
+                          ? 'bg-black text-white border-black'
                           : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-100'
                       }`}
                     >
-                      {opt}
+                      {answerLabels[opt]}
                     </button>
                   ))}
                 </div>
@@ -394,14 +571,14 @@ export default function KioskVoiceIntake({ selectedLang, scannedVitals, onSubmit
             <button
               onClick={handleSubmit}
               disabled={isAnalyzing}
-              className="w-full py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40 shadow-md mt-4"
+              className="w-full py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40 mt-4"
             >
               {isAnalyzing ? (
-                <span>Analyzing Intake...</span>
+                <span>{t.analyzing}</span>
               ) : (
                 <>
-                  <span>Check in</span>
-                  <ArrowRight className="w-6 h-6" />
+                  <span>{t.checkIn}</span>
+                  <ArrowRight className="w-6 h-6 rtl:rotate-180" />
                 </>
               )}
             </button>

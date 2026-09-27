@@ -61,17 +61,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - Click anywhere on the waiting room screen once so it can play sound.
 - Phones on the same Wi-Fi can scan the QR code. Use Chrome for voice input.
 
-## Sharing it online
-
-VoxVital needs one long-running Node server, so serverless hosts like Vercel won't work. To share it from your laptop:
-
-```bash
-npm run demo
-cloudflared tunnel --url http://localhost:3000
-```
-
-Open the link it prints and start the kiosk from there so the QR codes use that link.
-
 ## License
 
 MIT

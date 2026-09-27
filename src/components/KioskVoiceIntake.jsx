@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, ArrowRight, ArrowLeft, Keyboard, Volume2, RotateCcw } from 'lucide-react';
+import { Mic, MicOff, ArrowRight, ArrowLeft, Keyboard, Volume2, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { SPEECH_LOCALES, speak } from '@/lib/speech';
 
 const detectOnsetFromTranscript = (text) => {
@@ -31,6 +31,8 @@ export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSub
   const [transcript, setTranscript] = useState('');
 
   const [followUp, setFollowUp] = useState(null);
+  const [followUpHistory, setFollowUpHistory] = useState([]);
+  const [closing, setClosing] = useState(null);
   const [followUpFor, setFollowUpFor] = useState('');
   const [followUpAnswer, setFollowUpAnswer] = useState('');
   const [followUpLoading, setFollowUpLoading] = useState(false);
@@ -109,15 +111,50 @@ export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSub
     else startListening(target);
   };
 
-  const askFollowUp = async (question) => {
+  const say = async (text) => {
     stopListening();
     setIsSpeaking(true);
-    await speak(question.question, selectedLang.code);
+    await speak(text, selectedLang.code);
     setIsSpeaking(false);
+  };
+
+  const askFollowUp = async (question) => {
+    await say(question.question);
     if (subStepRef.current === 'followup') startListening('followup');
   };
 
-  const handleNextFromSymptoms = async () => {
+  // Gemini either asks the next question or says it has enough
+  const requestFollowUp = async (answered) => {
+    setFollowUpLoading(true);
+    try {
+      const res = await fetch('/api/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript,
+          languageCode: selectedLang.code,
+          history: answered.map(({ question, answer }) => ({ question, answer })),
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      setFollowUpLoading(false);
+
+      if (data.done) {
+        setClosing({ message: data.message, messageEnglish: data.messageEnglish });
+        say(data.message);
+      } else {
+        const question = { question: data.question, questionEnglish: data.questionEnglish };
+        setFollowUp(question);
+        askFollowUp(question);
+      }
+    } catch {
+      setFollowUpLoading(false);
+      goTo('questions');
+    }
+  };
+
+  const handleNextFromSymptoms = () => {
     if (!transcript.trim()) return;
     stopListening();
 
@@ -130,36 +167,31 @@ export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSub
     }
 
     goTo('followup');
-    if (followUp && followUpFor === transcript) return;
+    if (followUpFor === transcript) return;
 
+    setFollowUpFor(transcript);
     setFollowUp(null);
+    setFollowUpHistory([]);
+    setClosing(null);
     setFollowUpAnswer('');
-    setFollowUpLoading(true);
-    try {
-      const res = await fetch('/api/followup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, languageCode: selectedLang.code }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-
-      const question = { question: data.question, questionEnglish: data.questionEnglish };
-      setFollowUp(question);
-      setFollowUpFor(transcript);
-      setFollowUpLoading(false);
-      askFollowUp(question);
-    } catch {
-      // skip the follow-up
-      setFollowUpLoading(false);
-      goTo('questions');
-    }
+    requestFollowUp([]);
   };
 
-  const handleLeaveFollowUp = (keepAnswer) => {
+  const handleSendAnswer = () => {
+    const answer = followUpAnswer.trim();
+    if (!answer || !followUp) return;
+    stopListening();
+
+    const answered = [...followUpHistory, { ...followUp, answer }];
+    setFollowUpHistory(answered);
+    setFollowUp(null);
+    setFollowUpAnswer('');
+    requestFollowUp(answered);
+  };
+
+  const handleLeaveFollowUp = () => {
     stopListening();
     window.speechSynthesis?.cancel();
-    if (!keepAnswer) setFollowUpAnswer('');
     goTo('questions');
   };
 
@@ -194,9 +226,7 @@ export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSub
       medications: computedMeds,
       onset: computedOnset,
       isPregnant: computedPregnant,
-      followUp: followUp && followUpAnswer.trim()
-        ? { ...followUp, answer: followUpAnswer.trim() }
-        : null,
+      followUps: followUpHistory,
     });
   };
 
@@ -328,99 +358,133 @@ export default function KioskVoiceIntake({ t, selectedLang, scannedVitals, onSub
             </button>
 
             <h2 className="text-3xl md:text-4xl font-black text-black tracking-tight">
-              {t.oneMoreQuestion}
+              {t.moreDetails}
             </h2>
           </div>
 
-          {followUpLoading || !followUp ? (
-            <div className="flex flex-col items-center gap-3 py-12">
-              <div className="w-10 h-10 border-4 border-black border-t-transparent rounded-full animate-spin" />
-              <span className="text-base font-bold text-zinc-700">{t.preparingQuestion}</span>
-            </div>
-          ) : (
-            <div className="w-full max-w-md space-y-5">
-              <div className="bg-blue-50 border-2 border-blue-600 rounded-2xl p-5 text-start space-y-3">
-                <div className="flex items-start gap-3">
-                  <Volume2 className={`w-7 h-7 text-blue-600 shrink-0 mt-1 ${isSpeaking ? 'animate-pulse' : ''}`} />
-                  <p className="text-xl md:text-2xl font-black text-black leading-snug">{followUp.question}</p>
-                </div>
-                {selectedLang.code !== 'en' && (
-                  <p className="text-xs font-medium text-zinc-600 ps-10">{followUp.questionEnglish}</p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => askFollowUp(followUp)}
-                  disabled={isSpeaking}
-                  className="ms-10 inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:underline disabled:opacity-40"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{t.hearAgain}</span>
-                </button>
+          <div className="w-full max-w-md space-y-5">
+            {followUpHistory.length > 0 && (
+              <div className="space-y-3 text-start">
+                {followUpHistory.map((h, i) => (
+                  <div key={i} className="space-y-1">
+                    <p className="text-sm font-semibold text-zinc-500">{h.question}</p>
+                    <p className="ms-6 w-fit px-3 py-2 rounded-xl bg-zinc-100 text-sm font-bold text-black">{h.answer}</p>
+                  </div>
+                ))}
               </div>
+            )}
 
-              <div className="flex flex-col items-center justify-center space-y-3">
-                <button
-                  onClick={() => toggleRecording('followup')}
-                  disabled={isSpeaking}
-                  className={`p-6 rounded-full transition-all flex items-center justify-center border-4 disabled:opacity-40 ${
-                    isRecording
-                      ? 'bg-red-600 border-red-700 text-white scale-110 animate-pulse'
-                      : 'bg-black text-white border-black hover:bg-zinc-800'
-                  }`}
-                  aria-label={isRecording ? t.listening : t.tapToSpeak}
-                >
-                  {isRecording ? <Mic className="w-10 h-10" /> : <MicOff className="w-10 h-10 opacity-85" />}
-                </button>
-                <span className="text-base font-bold text-black">
-                  {isSpeaking ? t.listenToQuestion : isRecording ? t.listening : t.tapToAnswer}
+            {followUpLoading ? (
+              <div className="flex flex-col items-center gap-3 py-10">
+                <div className="w-10 h-10 border-4 border-black border-t-transparent rounded-full animate-spin" />
+                <span className="text-base font-bold text-zinc-700">
+                  {followUpHistory.length ? t.oneMoment : t.preparingQuestion}
                 </span>
               </div>
-
-              <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 text-start space-y-2">
-                <div className="flex items-center justify-between text-xs text-zinc-600 font-bold tracking-wider">
-                  <span>{t.yourAnswer}</span>
-                  <button
-                    onClick={() => setShowTextInput(!showTextInput)}
-                    className="text-black hover:underline flex items-center gap-1 font-extrabold"
-                  >
-                    <Keyboard className="w-3.5 h-3.5" />
-                    {showTextInput ? t.hideTextBox : t.typeInstead}
-                  </button>
-                </div>
-                {!showTextInput ? (
-                  <div className="min-h-[60px] text-black text-base font-medium p-3 bg-white rounded-xl border border-zinc-200">
-                    {followUpAnswer || (
-                      <span className="text-zinc-400 italic font-normal">{t.answerPlaceholder}</span>
-                    )}
+            ) : closing ? (
+              <>
+                <div className="bg-emerald-50 border-2 border-emerald-600 rounded-2xl p-5 text-start space-y-2">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-7 h-7 text-emerald-600 shrink-0 mt-0.5" />
+                    <p className="text-xl font-black text-black leading-snug">{closing.message}</p>
                   </div>
-                ) : (
-                  <textarea
-                    value={followUpAnswer}
-                    onChange={(e) => setFollowUpAnswer(e.target.value)}
-                    placeholder={t.typeAnswer}
-                    className="w-full min-h-[70px] bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black text-sm font-medium"
-                  />
-                )}
-              </div>
-
-              <div className="flex items-center gap-3">
+                  {selectedLang.code !== 'en' && (
+                    <p className="text-xs font-medium text-zinc-600 ps-10">{closing.messageEnglish}</p>
+                  )}
+                </div>
                 <button
-                  onClick={() => handleLeaveFollowUp(false)}
-                  className="py-4 px-5 rounded-xl bg-zinc-200 border border-zinc-300 text-black text-base font-bold hover:bg-zinc-300 transition-colors"
-                >
-                  {t.skip}
-                </button>
-                <button
-                  onClick={() => handleLeaveFollowUp(true)}
-                  disabled={!followUpAnswer.trim()}
-                  className="flex-1 py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40"
+                  onClick={handleLeaveFollowUp}
+                  className="w-full py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors"
                 >
                   <span>{t.next}</span>
                   <ArrowRight className="w-6 h-6 rtl:rotate-180" />
                 </button>
-              </div>
-            </div>
-          )}
+              </>
+            ) : followUp ? (
+              <>
+                <div className="bg-blue-50 border-2 border-blue-600 rounded-2xl p-5 text-start space-y-3">
+                  <div className="flex items-start gap-3">
+                    <Volume2 className={`w-7 h-7 text-blue-600 shrink-0 mt-1 ${isSpeaking ? 'animate-pulse' : ''}`} />
+                    <p className="text-xl md:text-2xl font-black text-black leading-snug">{followUp.question}</p>
+                  </div>
+                  {selectedLang.code !== 'en' && (
+                    <p className="text-xs font-medium text-zinc-600 ps-10">{followUp.questionEnglish}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => askFollowUp(followUp)}
+                    disabled={isSpeaking}
+                    className="ms-10 inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:underline disabled:opacity-40"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{t.hearAgain}</span>
+                  </button>
+                </div>
+
+                <div className="flex flex-col items-center justify-center space-y-3">
+                  <button
+                    onClick={() => toggleRecording('followup')}
+                    disabled={isSpeaking}
+                    className={`p-6 rounded-full transition-all flex items-center justify-center border-4 disabled:opacity-40 ${
+                      isRecording
+                        ? 'bg-red-600 border-red-700 text-white scale-110 animate-pulse'
+                        : 'bg-black text-white border-black hover:bg-zinc-800'
+                    }`}
+                    aria-label={isRecording ? t.listening : t.tapToSpeak}
+                  >
+                    {isRecording ? <Mic className="w-10 h-10" /> : <MicOff className="w-10 h-10 opacity-85" />}
+                  </button>
+                  <span className="text-base font-bold text-black">
+                    {isSpeaking ? t.listenToQuestion : isRecording ? t.listening : t.tapToAnswer}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-50 border border-zinc-300 rounded-2xl p-4 text-start space-y-2">
+                  <div className="flex items-center justify-between text-xs text-zinc-600 font-bold tracking-wider">
+                    <span>{t.yourAnswer}</span>
+                    <button
+                      onClick={() => setShowTextInput(!showTextInput)}
+                      className="text-black hover:underline flex items-center gap-1 font-extrabold"
+                    >
+                      <Keyboard className="w-3.5 h-3.5" />
+                      {showTextInput ? t.hideTextBox : t.typeInstead}
+                    </button>
+                  </div>
+                  {!showTextInput ? (
+                    <div className="min-h-[60px] text-black text-base font-medium p-3 bg-white rounded-xl border border-zinc-200">
+                      {followUpAnswer || (
+                        <span className="text-zinc-400 italic font-normal">{t.answerPlaceholder}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <textarea
+                      value={followUpAnswer}
+                      onChange={(e) => setFollowUpAnswer(e.target.value)}
+                      placeholder={t.typeAnswer}
+                      className="w-full min-h-[70px] bg-white text-black p-3 rounded-xl border border-zinc-300 focus:outline-none focus:border-black text-sm font-medium"
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleLeaveFollowUp}
+                    className="py-4 px-5 rounded-xl bg-zinc-200 border border-zinc-300 text-black text-base font-bold hover:bg-zinc-300 transition-colors"
+                  >
+                    {t.skip}
+                  </button>
+                  <button
+                    onClick={handleSendAnswer}
+                    disabled={!followUpAnswer.trim() || isSpeaking}
+                    className="flex-1 py-4 px-6 rounded-xl bg-black hover:bg-zinc-800 text-white font-black text-xl flex items-center justify-center gap-3 transition-colors disabled:opacity-40"
+                  >
+                    <span>{t.sendAnswer}</span>
+                    <ArrowRight className="w-6 h-6 rtl:rotate-180" />
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
         </>
       )}
 

@@ -11,8 +11,8 @@ export default function KioskStartScreen({ selectedLang, onSelectLang, onStartCh
   const [whoType, setWhoType] = useState('self');
   const [ageValue, setAgeValue] = useState(45);
   const [ageUnit, setAgeUnit] = useState('years');
-  const [sexValue, setSexValue] = useState('M');
-  const [pronounsValue, setPronounsValue] = useState('he/him');
+  const [sexValue, setSexValue] = useState(null);
+  const [pronounsValue, setPronounsValue] = useState(null);
   const [patientNameInput, setPatientNameInput] = useState('');
   const [needsInterpreter, setNeedsInterpreter] = useState(false);
   const [showRecheckModal, setShowRecheckModal] = useState(false);
@@ -325,14 +325,15 @@ export default function KioskStartScreen({ selectedLang, onSelectLang, onStartCh
 
             <div className="flex items-center gap-3 pt-2">
               <button
-                onClick={() => setWhoStep('step_age')}
+                onClick={() => setWhoStep(whoType === 'child' ? 'child_age' : 'step_age')}
                 className="py-4 px-5 rounded-2xl bg-zinc-200 border border-zinc-300 text-black text-base font-bold hover:bg-zinc-300 transition-colors"
               >
                 {t.back}
               </button>
               <button
                 onClick={() => setWhoStep('step_pronouns')}
-                className="flex-1 py-4 px-6 rounded-2xl bg-black text-white font-black text-lg flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all"
+                disabled={!sexValue}
+                className="flex-1 py-4 px-6 rounded-2xl bg-black text-white font-black text-lg flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <span>{t.continue}</span>
                 <ArrowRight className={`w-5 h-5 ${isRtl ? 'rotate-180' : ''}`} />
@@ -377,7 +378,10 @@ export default function KioskStartScreen({ selectedLang, onSelectLang, onStartCh
               </button>
 
               <button
-                onClick={() => setWhoStep('step_name')}
+                onClick={() => {
+                  setPronounsValue(null);
+                  setWhoStep('step_name');
+                }}
                 className="py-2 px-4 text-xs font-bold text-zinc-600 hover:text-black underline"
               >
                 {t.skipPronouns}

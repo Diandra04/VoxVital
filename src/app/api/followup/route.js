@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { generateFollowUpQuestion } from '@/lib/gemini';
+import { nextFollowUp } from '@/lib/gemini';
 import { rateLimit } from '@/lib/http';
 
 export async function POST(req) {
@@ -7,9 +7,9 @@ export async function POST(req) {
   if (limited) return limited;
 
   try {
-    const { transcript, languageCode } = await req.json();
-    const followUp = await generateFollowUpQuestion({ transcript, languageCode });
-    return NextResponse.json({ success: true, ...followUp });
+    const { transcript, languageCode, history } = await req.json();
+    const next = await nextFollowUp({ transcript, languageCode, history: Array.isArray(history) ? history : [] });
+    return NextResponse.json({ success: true, ...next });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

@@ -20,7 +20,7 @@ export async function POST(req) {
   try {
     const {
       transcript = '',
-      followUp,
+      followUps = [],
       painScore = 0,
       pulse: rawPulse,
       breathingRate: rawBreathing,
@@ -35,15 +35,15 @@ export async function POST(req) {
     const pulse = vitalsSkipped ? null : (rawPulse != null ? Number(rawPulse) : latestVitals.pulse);
     const breathingRate = vitalsSkipped ? null : (rawBreathing != null ? Number(rawBreathing) : latestVitals.breathing);
 
-    const answer = followUp?.answer?.trim();
-    const fullTranscript = answer ? `${transcript} ${answer}` : transcript;
+    const answered = followUps.filter((f) => f.answer?.trim());
+    const fullTranscript = [transcript, ...answered.map((f) => f.answer.trim())].join(' ');
 
     const analysis = await analyzeTranscriptWithGemini({ transcript: fullTranscript, pulse, breathingRate, painScore });
 
     const patient = await addOrUpdatePatient({
       ...intake,
       publicBase: requestBaseUrl(req),
-      followUp: answer ? followUp : null,
+      followUps: answered,
       vitalsSkipped,
       language: language || analysis.detectedLanguage,
       languageCode: languageCode || analysis.detectedLanguageCode,

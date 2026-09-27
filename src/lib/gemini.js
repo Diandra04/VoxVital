@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { kioskStrings } from './kioskStrings';
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -40,33 +41,69 @@ const FALLBACK_FOLLOW_UP = {
 
 const parseJson = (text) => JSON.parse(text.replace(/```json/gi, '').replace(/```/g, '').trim());
 
-export async function generateFollowUpQuestion({ transcript, languageCode = 'en' }) {
-  const fallback = {
+const FALLBACK_CLOSING = {
+  en: 'Thank you, that helps the nurse. Tap Next to continue.',
+  fr: 'Merci, cela aide l\'infirmière. Appuyez sur Suivant pour continuer.',
+  es: 'Gracias, eso ayuda a la enfermera. Toque Siguiente para continuar.',
+  ar: 'شكراً، هذا يساعد الممرضة. اضغط على التالي للمتابعة.',
+  pa: 'ਧੰਨਵਾਦ, ਇਸ ਨਾਲ ਨਰਸ ਦੀ ਮਦਦ ਹੁੰਦੀ ਹੈ। ਜਾਰੀ ਰੱਖਣ ਲਈ ਅੱਗੇ ਦਬਾਓ।',
+  zh: '谢谢，这对护士很有帮助。请点击下一步继续。',
+  ru: 'Спасибо, это поможет медсестре. Нажмите «Далее», чтобы продолжить.',
+};
+
+const MAX_FOLLOW_UPS = 3;
+
+// history: [{ question, answer }] asked so far. Returns the next question, or
+// { done: true } with a closing line once there's enough for the nurse.
+export async function nextFollowUp({ transcript, languageCode = 'en', history = [] }) {
+  const finish = {
+    done: true,
+    message: FALLBACK_CLOSING[languageCode] || FALLBACK_CLOSING.en,
+    messageEnglish: FALLBACK_CLOSING.en,
+  };
+  const firstQuestion = {
+    done: false,
     question: FALLBACK_FOLLOW_UP[languageCode] || FALLBACK_FOLLOW_UP.en,
     questionEnglish: FALLBACK_FOLLOW_UP.en,
   };
-  if (!genAI || !transcript?.trim()) return fallback;
+
+  if (history.length >= MAX_FOLLOW_UPS) return finish;
+  if (!genAI || !transcript?.trim()) return history.length ? finish : firstQuestion;
+
+  const language = LANGUAGE_NAMES[languageCode] || 'English';
+  const nextLabel = kioskStrings(languageCode).next;
+  const asked = history.map((h, i) => `Q${i + 1}: ${h.question}\nA${i + 1}: ${h.answer}`).join('\n');
 
   try {
-    const language = LANGUAGE_NAMES[languageCode] || 'English';
-    const text = await generate(`
-You are a triage nurse at an Emergency Room check-in kiosk. A patient just said:
-"${transcript}"
+    const parsed = parseJson(await generate(`
+You are a triage nurse talking with a patient at an Emergency Room check-in kiosk.
+The patient first said: "${transcript}"
+${asked ? `Follow-up so far:\n${asked}` : 'No follow-up questions asked yet.'}
 
-Ask ONE short, kind follow-up question that would most help the triage nurse, such as
-associated symptoms, what makes it worse, or relevant history for this complaint.
-Do NOT ask when it started or how bad the pain is; the kiosk asks those next.
-Write the question in ${language}, in plain words a worried patient understands, under 25 words.
+Decide what to do next:
+- If you still need something important for triage, ask ONE new short, kind question
+  (associated symptoms, what makes it worse, relevant history). Never repeat a question,
+  and never ask when it started or how bad the pain is; the kiosk asks those later.
+- If you have enough, finish with one short warm sentence that thanks them and tells them
+  to tap "${nextLabel}" to continue. If the answers sound like an emergency (chest pain,
+  trouble breathing, stroke signs, heavy bleeding), also tell them to alert staff right away.
+Write in ${language}, plain words, under 30 words. You may ask at most ${MAX_FOLLOW_UPS - history.length} more question(s).
 
-Return ONLY JSON: {"question": "question in ${language}", "questionEnglish": "English translation"}
-`);
-    const parsed = parseJson(text);
-    if (!parsed.question) return fallback;
-    return { question: parsed.question, questionEnglish: parsed.questionEnglish || parsed.question };
+Return ONLY JSON, one of:
+{"done": false, "question": "in ${language}", "questionEnglish": "English translation"}
+{"done": true, "message": "in ${language}", "messageEnglish": "English translation"}
+`));
+
+    if (parsed.done && parsed.message) {
+      return { done: true, message: parsed.message, messageEnglish: parsed.messageEnglish || parsed.message };
+    }
+    if (!parsed.done && parsed.question) {
+      return { done: false, question: parsed.question, questionEnglish: parsed.questionEnglish || parsed.question };
+    }
   } catch (error) {
     console.error('Gemini follow-up error:', error);
-    return fallback;
   }
+  return history.length ? finish : firstQuestion;
 }
 
 export async function analyzeTranscriptWithGemini({ transcript, pulse, breathingRate, painScore }) {

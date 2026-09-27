@@ -313,11 +313,15 @@ export default function PatientDetailDrawer({ patient, onClose, onUpdateNurseAct
               </div>
             )}
 
-            {patient.followUp && (
-              <div className="space-y-1 pt-2 border-t border-zinc-200 text-xs">
-                <span className="text-[11px] text-zinc-500 block font-semibold">Kiosk asked (spoken in {patient.language}):</span>
-                <p className="font-bold text-zinc-900">{patient.followUp.questionEnglish}</p>
-                <p className="text-zinc-800 font-medium">&quot;{patient.followUp.answer}&quot;</p>
+            {patient.followUps?.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs">
+                <span className="text-[11px] text-zinc-500 block font-semibold">Kiosk follow-up (spoken in {patient.language}):</span>
+                {patient.followUps.map((f, i) => (
+                  <div key={i}>
+                    <p className="font-bold text-zinc-900">{f.questionEnglish}</p>
+                    <p className="text-zinc-800 font-medium">&quot;{f.answer}&quot;</p>
+                  </div>
+                ))}
               </div>
             )}
 

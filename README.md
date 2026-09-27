@@ -10,7 +10,7 @@ npm install
 ```
 
 ### 2. Environment Setup
-Create a `.env.local` file in the root directory:
+Copy `.env.example` to `.env.local` and add your keys:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
